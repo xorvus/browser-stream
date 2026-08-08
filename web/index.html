@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browser Stream</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --page: #070a10;
+      --surface: #111620;
+      --surface-raised: #171e2a;
+      --surface-hover: #202a39;
+      --border: #283345;
+      --border-strong: #3b4a61;
+      --text: #f3f6fb;
+      --muted: #98a5b8;
+      --accent: #6ea8ff;
+      --accent-strong: #3d8bfd;
+      --danger: #ff8f8f;
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 12% -10%, rgba(61, 139, 253, .16), transparent 34rem),
+        radial-gradient(circle at 92% 0%, rgba(120, 84, 255, .09), transparent 28rem),
+        var(--page);
+      color: var(--text);
+    }
+
+    button,
+    input,
+    select { font: inherit; }
+
+    button,
+    select {
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface-raised);
+      color: var(--text);
+    }
+
+    button {
+      padding: 0 14px;
+      cursor: pointer;
+      font-size: .86rem;
+      font-weight: 620;
+      transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--surface-hover);
+      border-color: var(--border-strong);
+    }
+
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { cursor: wait; opacity: .62; }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    video:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    main {
+      width: min(100%, 1400px);
+      margin: 0 auto;
+      padding: clamp(16px, 2.5vw, 32px);
+    }
+
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 11px;
+      height: 11px;
+      border-radius: 4px;
+      background: linear-gradient(135deg, #86bbff, #4d71ff);
+      box-shadow: 0 0 18px rgba(110, 168, 255, .72);
+      flex: 0 0 auto;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -.01em;
+    }
+
+    #status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      color: var(--muted);
+      font-size: .84rem;
+      white-space: nowrap;
+    }
+
+    #status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #55d88a;
+      box-shadow: 0 0 10px rgba(85, 216, 138, .62);
+    }
+
+    #status.error { color: var(--danger); }
+    #status.error::before { background: var(--danger); box-shadow: 0 0 10px rgba(255, 143, 143, .5); }
+
+    #url-form {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding: 7px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(17, 22, 32, .88);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, .18);
+      backdrop-filter: blur(12px);
+    }
+
+    #url-form label {
+      padding-left: 7px;
+      color: var(--muted);
+      font-size: .72rem;
+      font-weight: 750;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    #browser-url {
+      width: 100%;
+      min-width: 0;
+      height: 38px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+    }
+
+    #browser-url::placeholder { color: #657187; }
+
+    #url-form button {
+      border-color: #4d83cf;
+      background: var(--accent-strong);
+      color: #fff;
+    }
+
+    #url-form button:hover:not(:disabled) {
+      border-color: #76aaff;
+      background: #5298ff;
+    }
+
+    .player-shell {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #000;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, .34);
+    }
+
+    video {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      object-fit: contain;
+      touch-action: none;
+    }
+
+    video:focus { outline-offset: -2px; }
+
+    .player-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border-top: 1px solid var(--border);
+      background: linear-gradient(180deg, #151b26, #111620);
+    }
+
+    .control {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: .82rem;
+      font-weight: 600;
+    }
+
+    .control select {
+      min-width: 142px;
+      padding: 0 34px 0 10px;
+    }
+
+    #sound { margin-left: auto; }
+
+    #mobile-keyboard {
+      position: fixed;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    @media (max-width: 760px) {
+      main { padding: 10px; }
+      .app-header { margin: 4px 2px 12px; }
+
+      #url-form {
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 4px 8px;
+      }
+
+      #url-form button { grid-column: 1 / -1; }
+
+      .player-toolbar {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .control {
+        grid-column: 1 / -1;
+        justify-content: space-between;
+      }
+
+      .control select { flex: 1; min-width: 0; }
+      .player-toolbar button { width: 100%; padding-inline: 8px; }
+      #sound { margin-left: 0; }
+    }
+
+    @media (max-width: 430px) {
+      .player-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #fullscreen { grid-column: 1 / -1; }
+      #status { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+    }
+
+    @media (pointer: coarse) {
+      button,
+      select { min-height: 44px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      button { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>Browser Stream</h1>
+      </div>
+      <p id="status" role="status">Ready</p>
+    </header>
+    <form id="url-form">
+      <label for="browser-url">URL</label>
+      <input id="browser-url" type="url" value="https://google.com" required>
+      <button type="submit">Open</button>
+    </form>
+    <section class="player-shell" aria-label="Remote browser viewer">
+      <video id="video" autoplay playsinline tabindex="0"></video>
+      <div class="player-toolbar" aria-label="Viewer controls">
+        <label class="control" for="quality">Quality
+          <select id="quality">
+            <option value="1080p60">1080p · 60 FPS</option>
+            <option value="1080p30">1080p · 30 FPS</option>
+            <option value="720p60">720p · 60 FPS</option>
+            <option value="720p30">720p · 30 FPS</option>
+          </select>
+        </label>
+        <button id="start" type="button">Start stream</button>
+        <button id="sound" type="button" disabled>Mute</button>
+        <button id="copy" type="button">Copy</button>
+        <button id="paste" type="button">Paste</button>
+        <button id="keyboard" type="button">Keyboard</button>
+        <button id="fullscreen" type="button">Fullscreen</button>
+      </div>
+    </section>
+    <textarea id="mobile-keyboard" aria-label="Remote keyboard" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+  </main>
+
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
