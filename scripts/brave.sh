@@ -38,6 +38,7 @@ brave_launch_args() {
     --use-gl=swiftshader \
     --ignore-gpu-blocklist \
     --autoplay-policy=no-user-gesture-required \
+    --disable-blink-features=AutomationControlled \
     --disable-backgrounding-occluded-windows \
     --disable-renderer-backgrounding \
     --disable-background-timer-throttling \

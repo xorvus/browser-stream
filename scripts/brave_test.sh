@@ -20,6 +20,7 @@ has_arg() {
 }
 
 has_arg --autoplay-policy=no-user-gesture-required
+has_arg --disable-blink-features=AutomationControlled
 has_arg --user-data-dir=/var/lib/browser-stream/brave-profile
 has_arg --window-size=1280,720
 has_arg --remote-debugging-address=127.0.0.1
