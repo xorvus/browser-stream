@@ -28,6 +28,7 @@ type server struct {
 	broadcaster  *stream.Broadcaster
 	audio        *stream.AudioBroadcaster
 	input        *browser.Dispatcher
+	lifecycle    viewerLifecyclePort
 	resize       func(context.Context, int, int) error
 	selectedText func(context.Context) (string, error)
 }
@@ -38,7 +39,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	handler := newServer(cfg, stream.NewBroadcaster(cfg), http.FileServer(http.Dir("./web")))
+	lifecycle := newViewerLifecycle(browser.SetPageLifecycleState)
+	handler := newServerWithLifecycle(cfg, stream.NewBroadcaster(cfg), http.FileServer(http.Dir("./web")), lifecycle)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := lifecycle.freezeIfIdle(ctx); err != nil {
+			log.Printf("pause browser page while idle: %v", err)
+		}
+	}()
 	srv := &http.Server{
 		Addr:              ":8080",
 		Handler:           handler,
@@ -64,7 +73,15 @@ func newServerWithClipboard(cfg config.Config, broadcaster *stream.Broadcaster, 
 }
 
 func newServerWithDependencies(cfg config.Config, broadcaster *stream.Broadcaster, static http.Handler, resize func(context.Context, int, int) error, selectedText func(context.Context) (string, error)) http.Handler {
-	s := &server{config: cfg, broadcaster: broadcaster, audio: stream.NewAudioBroadcaster(cfg), input: browser.NewInputDispatcher(), resize: resize, selectedText: selectedText}
+	return newServerWithLifecycleAndDependencies(cfg, broadcaster, static, resize, selectedText, noopViewerLifecycle{})
+}
+
+func newServerWithLifecycle(cfg config.Config, broadcaster *stream.Broadcaster, static http.Handler, lifecycle viewerLifecyclePort) http.Handler {
+	return newServerWithLifecycleAndDependencies(cfg, broadcaster, static, browser.ResizeViewport, browser.SelectedText, lifecycle)
+}
+
+func newServerWithLifecycleAndDependencies(cfg config.Config, broadcaster *stream.Broadcaster, static http.Handler, resize func(context.Context, int, int) error, selectedText func(context.Context) (string, error), lifecycle viewerLifecyclePort) http.Handler {
+	s := &server{config: cfg, broadcaster: broadcaster, audio: stream.NewAudioBroadcaster(cfg), input: browser.NewInputDispatcher(), lifecycle: lifecycle, resize: resize, selectedText: selectedText}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /stats", s.handleStats)
@@ -274,8 +291,25 @@ func (s *server) handleOffer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not gather WebRTC candidates", http.StatusGatewayTimeout)
 		return
 	}
+	if err := s.lifecycle.connect(r.Context()); err != nil {
+		cleanup()
+		log.Printf("resume browser page: %v", err)
+		http.Error(w, "could not resume browser page", http.StatusBadGateway)
+		return
+	}
+	viewerConnected := true
 	unsubMu.Lock()
-	unsubscribeVideo = s.broadcaster.Subscribe(videoTrack)
+	videoUnsubscribe := s.broadcaster.Subscribe(videoTrack)
+	unsubscribeVideo = func() {
+		videoUnsubscribe()
+		if !viewerConnected {
+			return
+		}
+		viewerConnected = false
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.lifecycle.disconnect(ctx)
+	}
 	unsubscribeAudio = s.audio.Subscribe(audioTrack)
 	unsubMu.Unlock()
 

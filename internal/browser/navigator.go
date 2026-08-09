@@ -35,6 +35,8 @@ const maxClipboardTextBytes = 16 * 1024
 
 const debugTargetsURL = "http://127.0.0.1:9222/json/list"
 
+const pageLifecycleTimeout = 5 * time.Second
+
 var defaultPointerMover = newX11PointerMover()
 
 func (input Input) Validate(width, height int) (Input, error) {
@@ -186,6 +188,19 @@ func Navigate(parent context.Context, rawURL string) (string, error) {
 	return parsed.String(), nil
 }
 
+func SetPageLifecycleState(parent context.Context, state string) error {
+	if state != "active" && state != "frozen" {
+		return fmt.Errorf("unsupported page lifecycle state %q", state)
+	}
+	ctx, cancel := context.WithTimeout(parent, pageLifecycleTimeout)
+	defer cancel()
+	target, err := visibleTarget(ctx)
+	if err != nil {
+		return err
+	}
+	return setPageLifecycleStateTarget(ctx, target.WebSocketURL, state)
+}
+
 func SelectedText(parent context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
@@ -246,6 +261,10 @@ func selectedTextTarget(ctx context.Context, endpoint string) (string, error) {
 
 func navigateTarget(ctx context.Context, endpoint, rawURL string) error {
 	return callDevTools(ctx, endpoint, "Page.navigate", map[string]string{"url": rawURL}, nil)
+}
+
+func setPageLifecycleStateTarget(ctx context.Context, endpoint, state string) error {
+	return callDevTools(ctx, endpoint, "Page.setWebLifecycleState", map[string]string{"state": state}, nil)
 }
 
 func callDevTools(ctx context.Context, endpoint, method string, params, result any) error {

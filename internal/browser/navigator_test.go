@@ -89,6 +89,36 @@ func TestCallDevToolsReturnsMatchingCommandResult(t *testing.T) {
 	}
 }
 
+func TestSetPageLifecycleStateTargetSendsFrozenState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connection, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer connection.Close(websocket.StatusNormalClosure, "")
+		_, payload, err := connection.Read(r.Context())
+		if err != nil {
+			return
+		}
+		var command struct {
+			Method string            `json:"method"`
+			Params map[string]string `json:"params"`
+		}
+		if json.Unmarshal(payload, &command) != nil || command.Method != "Page.setWebLifecycleState" || command.Params["state"] != "frozen" {
+			return
+		}
+		response, _ := json.Marshal(map[string]any{"id": 1, "result": map[string]any{}})
+		_ = connection.Write(r.Context(), websocket.MessageText, response)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := setPageLifecycleStateTarget(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), "frozen"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestXdotoolMouseCommandsDoNotWaitForSamePositionMovement(t *testing.T) {
 	got := xdotoolMouseArgs(Input{Type: "move", X: 210, Y: 1020})
 	want := []string{"mousemove", "210", "1020"}
