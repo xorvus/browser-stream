@@ -1,3 +1,19 @@
+/**
+ * clearTracks empties a MediaStream in place.
+ *
+ * Reconnecting must not assign a new stream to video.srcObject: that restarts
+ * the media element's load algorithm and aborts any play() still in flight.
+ * Since start() deliberately calls play() before connect(), replacing the
+ * stream made that first play() reject, and the rejection handler mutes the
+ * video, leaving a perfectly good stream showing a muted sound control.
+ */
+export function clearTracks(stream) {
+  for (const track of stream.getTracks()) {
+    stream.removeTrack(track);
+    track.stop();
+  }
+}
+
 export function createPlaybackStarter({ video, connect, onError = () => {} }) {
   let pending = null;
   let connection = null;

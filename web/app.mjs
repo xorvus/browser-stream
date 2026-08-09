@@ -1,7 +1,7 @@
 import { deriveVideoFPS } from "./stats.mjs";
 import { createInputClient, inputWebSocketURL } from "./input-client.mjs";
 import { clipboardShortcut, createInputControl, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, pointerParkingCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
-import { createPlaybackStarter } from "./playback.mjs";
+import { clearTracks, createPlaybackStarter } from "./playback.mjs";
 import { createStreamSession, prefersDataSaver } from "./session.mjs";
 
 const status = document.getElementById("status");
@@ -21,7 +21,7 @@ const mobileKeyboard = document.getElementById("mobile-keyboard");
 const quality = document.getElementById("quality");
 const saver = document.getElementById("saver");
 const budget = document.getElementById("budget");
-let mediaStream = new MediaStream();
+const mediaStream = new MediaStream();
 const inputState = createInputState();
 const captureSize = { width: 1920, height: 1080 };
 let cachedRect = video.getBoundingClientRect();
@@ -126,8 +126,20 @@ async function copyClipboard() {
   }
 }
 
+// Tracks from a previous negotiation are dropped at the moment the first
+// replacement arrives, not when the reconnect starts. Emptying the stream up
+// front would leave the video element with nothing to render for a whole
+// signalling round trip.
+let awaitingReplacement = false;
+
 const session = createStreamSession({
-  onTrack: (event) => mediaStream.addTrack(event.track),
+  onTrack: (event) => {
+    if (awaitingReplacement) {
+      clearTracks(mediaStream);
+      awaitingReplacement = false;
+    }
+    mediaStream.addTrack(event.track);
+  },
   onState: (state) => {
     switch (state) {
       case "connected":
@@ -145,10 +157,11 @@ const session = createStreamSession({
 });
 
 function connect() {
-  // Every reconnect starts a fresh MediaStream: tracks from the previous
-  // negotiation belong to a peer connection that no longer exists.
-  mediaStream = new MediaStream();
-  video.srcObject = mediaStream;
+  // The MediaStream object stays put for the life of the page. Reassigning
+  // video.srcObject would restart the element's load algorithm and abort the
+  // play() that createPlaybackStarter has already issued from the user's
+  // gesture, and the resulting rejection mutes the video.
+  awaitingReplacement = true;
   previousVideoStats = null;
   return session.connect(saver.value);
 }

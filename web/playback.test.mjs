@@ -1,6 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPlaybackStarter } from "./playback.mjs";
+import { clearTracks, createPlaybackStarter } from "./playback.mjs";
+
+test("clearTracks empties the stream in place instead of replacing it", () => {
+  const stopped = [];
+  const tracks = [
+    { kind: "video", stop: () => stopped.push("video") },
+    { kind: "audio", stop: () => stopped.push("audio") },
+  ];
+  const stream = {
+    getTracks: () => [...tracks],
+    removeTrack: (track) => tracks.splice(tracks.indexOf(track), 1),
+  };
+
+  clearTracks(stream);
+
+  assert.deepEqual(tracks, [], "every track must be removed from the same stream object");
+  assert.deepEqual(stopped, ["video", "audio"], "removed tracks must be stopped");
+});
+
+test("clearTracks is safe on an already empty stream", () => {
+  assert.doesNotThrow(() => clearTracks({ getTracks: () => [], removeTrack: () => {} }));
+});
 
 test("starts unmuted playback synchronously and negotiates only once", async () => {
   const calls = [];

@@ -128,6 +128,16 @@ test("offers a per-viewer data saver that does not touch the shared profile", ()
   assert.doesNotMatch(source, /saver[\s\S]{0,200}fetch\("\/quality"/);
 });
 
+test("binds the media stream to the video element exactly once", () => {
+  // Assigning srcObject restarts the media element's load algorithm, which
+  // aborts a play() already in flight. Reconnecting by swapping the stream
+  // made the first play() reject, and the rejection handler mutes the video,
+  // so a working stream showed a crossed-out sound icon.
+  const assignments = app.match(/video\.srcObject\s*=/g) ?? [];
+  assert.equal(assignments.length, 1, "srcObject must be assigned once, not per reconnect");
+  assert.match(app, /clearTracks\(mediaStream\)/);
+});
+
 test("polls less often while the data saver is on", () => {
   assert.match(source, /POLL_INTERVALS/);
   assert.match(source, /pollInterval\("stats"\)/);
