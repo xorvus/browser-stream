@@ -35,7 +35,7 @@ test: ## Run all automated tests
 build: ## Build the Docker image
 	docker build -t $(IMAGE) .
 
-run: ## Start the local browser-stream container
+run: build ## Build and start the local browser-stream container
 	docker run --rm --detach --name $(CONTAINER) \
 		--hostname browser-stream \
 		--publish $(HOST_PORT):8080 \
@@ -82,4 +82,4 @@ clean: ## Stop the local container and remove the Docker image
 	-docker stop $(CONTAINER)
 	docker image rm $(IMAGE)
 
-rerun: stop build run
+rerun: stop run

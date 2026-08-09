@@ -25,8 +25,8 @@ func TestViewerLifecycleActivatesFirstAndFreezesLastViewer(t *testing.T) {
 	lifecycle.disconnect(context.Background())
 	lifecycle.disconnect(context.Background())
 
-	if !reflect.DeepEqual(states, []string{"frozen", "active", "frozen"}) {
-		t.Fatalf("lifecycle states = %#v, want [frozen active frozen]", states)
+	if !reflect.DeepEqual(states, []string{"active", "frozen"}) {
+		t.Fatalf("lifecycle states = %#v, want [active frozen]", states)
 	}
 }
 

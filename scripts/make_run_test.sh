@@ -12,6 +12,11 @@ without_drm=$(make --no-print-directory -n -C "$PROJECT_DIR" run \
   WIDEVINE_ARCH=aarch64 WIDEVINE_SEARCH_DIRS="$TEST_TMP/missing")
 
 case "$without_drm" in
+  *"docker build -t browser-stream:mvp ."*) ;;
+  *) echo "run command does not rebuild the Docker image" >&2; exit 1 ;;
+esac
+
+case "$without_drm" in
   *"--hostname browser-stream"*) ;;
   *) echo "run command is missing the stable hostname" >&2; exit 1 ;;
 esac

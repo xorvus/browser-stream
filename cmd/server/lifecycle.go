@@ -57,7 +57,7 @@ func (l *viewerLifecycle) disconnect(ctx context.Context) {
 func (l *viewerLifecycle) freezeIfIdle(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.viewers != 0 || l.state == "frozen" {
+	if l.viewers != 0 || l.state == "" || l.state == "frozen" {
 		return nil
 	}
 	if err := l.setState(ctx, "frozen"); err != nil {

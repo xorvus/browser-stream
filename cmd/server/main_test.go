@@ -35,6 +35,20 @@ func TestHealthzReportsServerReadiness(t *testing.T) {
 	}
 }
 
+func TestStaticAssetsDisableStaleBrowserCache(t *testing.T) {
+	handler := newServer(config.Config{}, stream.NewBroadcaster(config.Config{}), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("cache-control = %q, want no-store", got)
+	}
+}
+
 func TestClipboardReturnsSelectedText(t *testing.T) {
 	handler := newServerWithClipboard(
 		config.Config{}, stream.NewBroadcaster(config.Config{}), http.NotFoundHandler(),

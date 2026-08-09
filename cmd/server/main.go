@@ -91,8 +91,15 @@ func newServerWithLifecycleAndDependencies(cfg config.Config, broadcaster *strea
 	mux.HandleFunc("POST /input", s.handleInput)
 	mux.Handle("GET /input/ws", newInputWebSocketHandler(cfg.Width, cfg.Height, s.input.Dispatch))
 	mux.HandleFunc("POST /quality", s.handleQuality)
-	mux.Handle("/", static)
+	mux.Handle("/", noCacheStatic(static))
 	return mux
+}
+
+func noCacheStatic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *server) handleClipboard(w http.ResponseWriter, r *http.Request) {
