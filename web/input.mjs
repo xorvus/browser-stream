@@ -75,6 +75,12 @@ export function pointerCoordinates(event, rect, capture) {
   };
 }
 
+export function pointerParkingCoordinates(capture) {
+  const width = Math.max(1, Number(capture?.width) || 1);
+  const height = Math.max(1, Number(capture?.height) || 1);
+  return { x: width - 1, y: 0 };
+}
+
 export function createInputState() {
   const keys = new Map();
   let pointerDown = null;

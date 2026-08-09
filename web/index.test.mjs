@@ -56,6 +56,12 @@ test("renders a per-viewer control toggle in the toolbar", () => {
   assert.match(toolbar, /<button id="control"[^>]*aria-pressed="false"[^>]*>Control: Off<\/button>/);
 });
 
+test("parks and hides the pointer when viewer control is disabled", () => {
+  assert.match(html, /video\.control-off\s*\{[^}]*cursor:\s*none/);
+  assert.match(source, /pointerParkingCoordinates/);
+  assert.match(source, /inputClient\.send\(\{ type: "move", \.\.\.pointerParkingCoordinates\(captureSize\) \}\)/);
+});
+
 test("shows the Keyboard button only for touch input", () => {
   assert.match(html, /#keyboard\s*\{\s*display:\s*none/);
   const coarseStart = html.indexOf("@media (pointer: coarse)");
@@ -63,20 +69,47 @@ test("shows the Keyboard button only for touch input", () => {
   assert.match(html.slice(coarseStart, coarseEnd + 1), /#keyboard\s*\{\s*display:\s*block/);
 });
 
-test("renders the volume control in a video sidebar", () => {
+test("renders the volume control below the video", () => {
   const layoutStart = html.indexOf('<div class="video-layout">');
   const sidebarStart = html.indexOf('<aside class="sound-sidebar"', layoutStart);
   const toolbarStart = html.indexOf('<div class="player-toolbar"', sidebarStart);
   const sidebar = html.slice(sidebarStart, toolbarStart);
+  const baseStyles = html.slice(html.indexOf("<style>"), html.indexOf("@media (max-width: 760px)"));
 
   assert.ok(layoutStart >= 0, "video layout must exist");
   assert.ok(sidebarStart > layoutStart, "sound sidebar must be inside the video layout");
   assert.ok(toolbarStart > sidebarStart, "toolbar must follow the sound sidebar");
+  assert.match(baseStyles, /\.video-layout\s*\{[^}]*display:\s*block/);
+  assert.match(baseStyles, /\.video-settings\s*\{[^}]*border-top:/);
+  assert.match(baseStyles, /\.sound-sidebar\s*\{[^}]*flex:\s*1/);
   assert.match(sidebar, /<button id="sound"[^>]*aria-label="Mute"/);
   assert.match(sidebar, /<svg class="sound-icon sound-icon-on"/);
   assert.match(sidebar, /<svg class="sound-icon sound-icon-off"/);
   assert.match(sidebar, /<input id="volume" type="range"[^>]*min="0"[^>]*max="1"/);
   assert.match(source, /volume\.addEventListener\("input"/);
+  assert.match(html, /#volume\s*\{[^}]*direction:\s*ltr/);
+  assert.doesNotMatch(html, /#volume\s*\{[^}]*writing-mode:\s*vertical-lr/);
+});
+
+test("aligns quality and volume in the same settings row", () => {
+  const settingsStart = html.indexOf('<div class="video-settings"');
+  const settingsEnd = html.indexOf("</div>", settingsStart);
+  const settings = html.slice(settingsStart, settingsEnd);
+  const mobileStyles = html.slice(html.indexOf("@media (max-width: 760px)"), html.indexOf("@media (max-width: 430px)"));
+
+  assert.ok(settingsStart >= 0, "video settings row must exist");
+  assert.ok(settingsEnd > settingsStart, "video settings row must close");
+  assert.match(settings, /for="quality"/);
+  assert.match(settings, /id="quality"/);
+  assert.match(settings, /id="volume"/);
+  assert.match(html, /\.quality-control\s*\{[^}]*flex:\s*0\s*0/);
+  assert.match(html, /\.quality-control select\s*\{[^}]*flex:\s*1/);
+  assert.match(html, /\.quality-control select\s*\{[^}]*width:\s*auto/);
+  assert.match(html, /\.control select\s*\{[^}]*padding:\s*0 18px 0 8px/);
+  assert.match(settings, /<svg class="select-arrow"/);
+  assert.match(html, /\.quality-control select\s*\{[^}]*appearance:\s*none/);
+  assert.match(html, /#volume\s*\{[^}]*flex:\s*1/);
+  assert.match(mobileStyles, /\.video-settings\s*\{[^}]*display:\s*block/);
 });
 
 test("provides touch-friendly clipboard and keyboard controls", () => {
@@ -100,7 +133,8 @@ test("renders every viewer control in a toolbar below the video", () => {
   assert.ok(toolbarEnd > toolbarStart, "viewer toolbar must be closed");
 
   const toolbar = html.slice(toolbarStart, toolbarEnd);
-  for (const id of ["quality", "control", "copy", "paste", "keyboard", "fullscreen"]) {
+  for (const id of ["control", "copy", "paste", "keyboard", "fullscreen"]) {
     assert.match(toolbar, new RegExp(`id=["']${id}["']`));
   }
+  assert.doesNotMatch(toolbar, /id=["']quality["']/);
 });

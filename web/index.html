@@ -187,26 +187,43 @@
     }
 
     .video-layout {
-      display: flex;
-      align-items: stretch;
+      display: block;
     }
 
     .video-stage {
       position: relative;
+      min-width: 0;
+    }
+
+    .video-settings {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 10px;
+      border-top: 1px solid var(--border);
+      background: linear-gradient(180deg, #151b26, #111620);
+    }
+
+    .quality-control {
+      flex: 0 0 210px;
+      min-width: 0;
+    }
+
+    .quality-control select {
+      width: auto;
       flex: 1;
       min-width: 0;
     }
 
     .sound-sidebar {
       display: flex;
-      width: 54px;
-      flex: 0 0 54px;
+      width: auto;
+      flex: 1;
+      flex-direction: row;
       align-items: center;
-      justify-content: center;
+      justify-content: stretch;
       gap: 10px;
-      padding: 10px 6px;
-      border-left: 1px solid var(--border);
-      background: linear-gradient(180deg, #151b26, #111620);
+      min-width: 0;
     }
 
     .sound-sidebar button {
@@ -239,11 +256,11 @@
     }
 
     #volume {
-      width: 24px;
-      height: min(30vh, 220px);
+      width: 130px;
+      height: 28px;
+      flex: 1;
       accent-color: var(--accent);
-      writing-mode: vertical-lr;
-      direction: rtl;
+      direction: ltr;
     }
 
     video {
@@ -256,6 +273,7 @@
     }
 
     video:focus { outline-offset: -2px; }
+    video.control-off { cursor: none; }
 
     .start-overlay {
       position: absolute;
@@ -296,8 +314,35 @@
     }
 
     .control select {
-      min-width: 142px;
-      padding: 0 34px 0 10px;
+      min-width: 0;
+      padding: 0 18px 0 8px;
+    }
+
+    .quality-select {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .quality-control select {
+      width: 100%;
+      appearance: none;
+      padding-right: 30px;
+    }
+
+    .select-arrow {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+      pointer-events: none;
+      transform: translateY(-50%);
     }
 
     #keyboard { display: none; }
@@ -314,24 +359,22 @@
       main { padding: 10px; }
       .app-header { margin: 4px 2px 12px; }
 
-      .video-layout { display: block; }
+      .sound-sidebar button { flex: 0 0 44px; }
 
-      .sound-sidebar {
-        width: auto;
-        flex-direction: row;
-        justify-content: stretch;
-        padding: 8px 10px;
-        border-top: 1px solid var(--border);
-        border-left: 0;
+      .video-settings {
+        display: block;
+        gap: 8px;
       }
 
-      .sound-sidebar button { flex: 0 0 44px; }
+      .quality-control {
+        width: 100%;
+      }
+
+      .sound-sidebar {
+        margin-top: 8px;
+      }
       #volume {
         width: auto;
-        height: 28px;
-        flex: 1;
-        writing-mode: horizontal-tb;
-        direction: ltr;
       }
 
       #url-form {
@@ -347,7 +390,7 @@
         gap: 8px;
       }
 
-      .control {
+      .player-toolbar .control {
         grid-column: 1 / -1;
         justify-content: space-between;
       }
@@ -394,31 +437,38 @@
           <video id="video" autoplay playsinline tabindex="0"></video>
           <button id="start" class="start-overlay" type="button">Start stream</button>
         </div>
-        <aside class="sound-sidebar" aria-label="Volume controls">
-          <button id="sound" type="button" disabled aria-label="Mute" aria-pressed="false" title="Mute">
-            <svg class="sound-icon sound-icon-on" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M4 10v4h3l4 3V7l-4 3H4Z"></path>
-              <path d="M15 9.5a4 4 0 0 1 0 5"></path>
-              <path d="M17.5 7a7 7 0 0 1 0 10"></path>
-            </svg>
-            <svg class="sound-icon sound-icon-off" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M4 10v4h3l4 3V7l-4 3H4Z"></path>
-              <path d="m16 9 5 6"></path>
-              <path d="m21 9-5 6"></path>
-            </svg>
-          </button>
-          <input id="volume" type="range" min="0" max="1" step="0.01" value="1" disabled aria-label="Volume">
-        </aside>
+        <div class="video-settings" aria-label="Video settings">
+          <label class="control quality-control" for="quality">Quality
+            <span class="quality-select">
+              <select id="quality">
+                <option value="1080p60">1080p · 60 FPS</option>
+                <option value="1080p30">1080p · 30 FPS</option>
+                <option value="720p60">720p · 60 FPS</option>
+                <option value="720p30">720p · 30 FPS</option>
+              </select>
+              <svg class="select-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="m4 6 4 4 4-4"></path>
+              </svg>
+            </span>
+          </label>
+          <aside class="sound-sidebar" aria-label="Volume controls">
+            <button id="sound" type="button" disabled aria-label="Mute" aria-pressed="false" title="Mute">
+              <svg class="sound-icon sound-icon-on" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 10v4h3l4 3V7l-4 3H4Z"></path>
+                <path d="M15 9.5a4 4 0 0 1 0 5"></path>
+                <path d="M17.5 7a7 7 0 0 1 0 10"></path>
+              </svg>
+              <svg class="sound-icon sound-icon-off" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4 10v4h3l4 3V7l-4 3H4Z"></path>
+                <path d="m16 9 5 6"></path>
+                <path d="m21 9-5 6"></path>
+              </svg>
+            </button>
+            <input id="volume" type="range" min="0" max="1" step="0.01" value="1" disabled aria-label="Volume">
+          </aside>
+        </div>
       </div>
       <div class="player-toolbar" aria-label="Viewer controls">
-        <label class="control" for="quality">Quality
-          <select id="quality">
-            <option value="1080p60">1080p · 60 FPS</option>
-            <option value="1080p30">1080p · 30 FPS</option>
-            <option value="720p60">720p · 60 FPS</option>
-            <option value="720p30">720p · 30 FPS</option>
-          </select>
-        </label>
         <button id="control" type="button" aria-pressed="false">Control: Off</button>
         <button id="copy" type="button">Copy</button>
         <button id="paste" type="button">Paste</button>

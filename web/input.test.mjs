@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { clipboardShortcut, createInputControl, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
+import { clipboardShortcut, createInputControl, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, pointerParkingCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
 
 test("stops sending input while per-viewer control is disabled", () => {
   const sent = [];
@@ -138,4 +138,9 @@ test("clamps pointer coordinates to the capture bounds", () => {
     { width: 1920, height: 1080 },
   );
   assert.deepEqual(got, { x: 1919, y: 0 });
+});
+
+test("parks the remote pointer at the top-right capture corner", () => {
+  assert.deepEqual(pointerParkingCoordinates({ width: 1920, height: 1080 }), { x: 1919, y: 0 });
+  assert.deepEqual(pointerParkingCoordinates({ width: 0, height: 0 }), { x: 0, y: 0 });
 });

@@ -1,6 +1,6 @@
 import { deriveVideoFPS } from "./stats.mjs";
 import { createInputClient, inputWebSocketURL } from "./input-client.mjs";
-import { clipboardShortcut, createInputControl, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
+import { clipboardShortcut, createInputControl, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, pointerParkingCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
 import { createPlaybackStarter } from "./playback.mjs";
 
 const status = document.getElementById("status");
@@ -71,8 +71,13 @@ function renderControlState() {
   const enabled = inputControl.enabled;
   control.textContent = `Control: ${enabled ? "On" : "Off"}`;
   control.setAttribute("aria-pressed", String(enabled));
+  video.classList.toggle("control-off", !enabled);
   for (const button of [copy, paste, keyboard]) button.disabled = !enabled;
   if (!enabled) mobileKeyboard.blur();
+}
+
+function parkRemotePointer() {
+  inputClient.send({ type: "move", ...pointerParkingCoordinates(captureSize) });
 }
 
 function clipboardAPI() {
@@ -300,7 +305,9 @@ paste.addEventListener("click", pasteClipboard);
 copy.addEventListener("click", copyClipboard);
 keyboard.addEventListener("click", () => mobileKeyboard.focus({ preventScroll: true }));
 control.addEventListener("click", () => {
-  inputControl.setEnabled(!inputControl.enabled);
+  const enabled = !inputControl.enabled;
+  inputControl.setEnabled(enabled);
+  if (!enabled) parkRemotePointer();
   renderControlState();
 });
 renderControlState();
