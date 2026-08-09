@@ -44,7 +44,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	lifecycle := newViewerLifecycle(browser.SetPageLifecycleState)
+	// BROWSER_URL doubles as the page to reopen if every tab gets closed.
+	lifecycle := newViewerLifecycle(func(ctx context.Context, state string) error {
+		return browser.SetPageLifecycleState(ctx, state, cfg.BrowserURL)
+	})
 	handler := newServerWithLifecycle(cfg, stream.NewBroadcaster(cfg), http.FileServer(http.Dir("./web")), lifecycle)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

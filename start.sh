@@ -53,10 +53,15 @@ for _ in $(seq 1 20); do
 done
 
 mkdir -p "$BRAVE_USER_DATA_DIR"
-rm -f \
-  "$BRAVE_USER_DATA_DIR/SingletonLock" \
-  "$BRAVE_USER_DATA_DIR/SingletonCookie" \
-  "$BRAVE_USER_DATA_DIR/SingletonSocket"
+
+clear_profile_locks() {
+  rm -f \
+    "$BRAVE_USER_DATA_DIR/SingletonLock" \
+    "$BRAVE_USER_DATA_DIR/SingletonCookie" \
+    "$BRAVE_USER_DATA_DIR/SingletonSocket"
+}
+
+clear_profile_locks
 
 WIDEVINE_ROOT=/opt/brave.com/brave/WidevineCdm
 RUNTIME_ARCH=$(uname -m)
@@ -85,7 +90,20 @@ mapfile -t BRAVE_ARGS < <(brave_launch_args \
   "$BROWSER_VIEWPORT_HEIGHT" \
   "$BROWSER_USER_AGENT")
 
-brave-browser "${BRAVE_ARGS[@]}" "$BROWSER_URL" &
+# Closing the last tab exits Brave, which previously left the server streaming
+# an empty desktop with no way back. Supervise it so the browser comes back and
+# the next viewer finds a page. The server itself reopens a tab over DevTools
+# when Brave is alive but has none.
+supervise_browser() {
+  while true; do
+    clear_profile_locks
+    brave-browser "${BRAVE_ARGS[@]}" "$BROWSER_URL" || true
+    echo "brave: exited, restarting" >&2
+    sleep 1
+  done
+}
+
+supervise_browser &
 
 for _ in $(seq 1 30); do
   if xdotool search --onlyvisible --class browser-stream windowsize %@ "$BROWSER_VIEWPORT_WIDTH" "$BROWSER_VIEWPORT_HEIGHT" >/dev/null 2>&1; then

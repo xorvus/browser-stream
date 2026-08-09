@@ -26,6 +26,13 @@ has_arg --remote-debugging-address=127.0.0.1
 has_arg --remote-debugging-port=9222
 has_arg --class=browser-stream
 
+# Without these, Chromium under Xvfb can stop painting because it believes the
+# window is occluded, which the capture sees as a blank page.
+has_arg --disable-backgrounding-occluded-windows
+has_arg --disable-renderer-backgrounding
+has_arg --disable-background-timer-throttling
+has_arg --disable-features=CalculateNativeWinOcclusion
+
 for arg in "${args[@]}"; do
   case "$arg" in
     --user-agent=*)

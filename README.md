@@ -113,4 +113,10 @@ curl http://localhost:8080/stats
 
 `/stats` reports one entry per running encoder under `video.pipelines`, plus the advertised cost of every delivery profile under `streamProfiles`.
 
+## Browser recovery
+
+The streamed page is frozen once no viewer has been connected for 15 seconds, and resumed for the next one. The delay exists so that reloading the viewer page does not freeze and unfreeze the browser in the same second; a page coming out of the frozen state does not always repaint, which showed up as a blank white frame.
+
+If every tab is closed, the server opens a new one at `BROWSER_URL` when the next viewer connects, and `start.sh` restarts Brave if it exits. Neither needs a container restart.
+
 If remote video does not connect, check `WEBRTC_ICE_HOST` and the UDP range. If playback stutters, use `720p30`, switch that viewer to a data-saver profile, or allocate more CPU to Docker. If protected content fails, run `make widevine-status` and check the container logs.

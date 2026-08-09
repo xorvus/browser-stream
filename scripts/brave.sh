@@ -22,6 +22,11 @@ brave_launch_args() {
   local viewport_height=$3
   local user_agent=${4-}
 
+  # Xvfb has no window manager, so Chromium's occlusion detection can decide
+  # the window is hidden and stop producing frames. The capture then shows a
+  # blank page until something forces a repaint. The four disable flags below
+  # keep the renderer painting and its timers running regardless of what
+  # Chromium believes about visibility.
   printf '%s\n' \
     --remote-debugging-address=127.0.0.1 \
     --remote-debugging-port=9222 \
@@ -33,6 +38,10 @@ brave_launch_args() {
     --use-gl=swiftshader \
     --ignore-gpu-blocklist \
     --autoplay-policy=no-user-gesture-required \
+    --disable-backgrounding-occluded-windows \
+    --disable-renderer-backgrounding \
+    --disable-background-timer-throttling \
+    --disable-features=CalculateNativeWinOcclusion \
     "--user-data-dir=$profile_dir" \
     "--window-size=$viewport_width,$viewport_height" \
     --window-position=0,0

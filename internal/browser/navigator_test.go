@@ -3,11 +3,14 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,6 +52,181 @@ func TestFindVisibleTargetSkipsBlankAndNonPageTargets(t *testing.T) {
 	}
 	if target.ID != "visible" {
 		t.Fatalf("target ID = %q, want visible", target.ID)
+	}
+}
+
+// fakeDevTools stands in for Brave's DevTools endpoint: the HTTP target list,
+// the PUT that opens a page, and a WebSocket that records the commands sent.
+type fakeDevTools struct {
+	server  *httptest.Server
+	mu      sync.Mutex
+	targets []debugTarget
+	methods []string
+	opened  []string
+}
+
+func newFakeDevTools(t *testing.T, urls ...string) *fakeDevTools {
+	t.Helper()
+	fake := &fakeDevTools{}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /json/list", func(w http.ResponseWriter, _ *http.Request) {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(fake.targets)
+	})
+	mux.HandleFunc("PUT /json/new", func(w http.ResponseWriter, r *http.Request) {
+		target := fake.add(r.URL.RawQuery)
+		fake.mu.Lock()
+		fake.opened = append(fake.opened, r.URL.RawQuery)
+		fake.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(target)
+	})
+	mux.HandleFunc("/devtools/page/", func(w http.ResponseWriter, r *http.Request) {
+		connection, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer connection.Close(websocket.StatusNormalClosure, "")
+		for {
+			_, payload, err := connection.Read(r.Context())
+			if err != nil {
+				return
+			}
+			var command struct {
+				ID     int    `json:"id"`
+				Method string `json:"method"`
+			}
+			if json.Unmarshal(payload, &command) != nil {
+				return
+			}
+			fake.mu.Lock()
+			fake.methods = append(fake.methods, command.Method)
+			fake.mu.Unlock()
+			response, _ := json.Marshal(map[string]any{"id": command.ID, "result": map[string]any{}})
+			if connection.Write(r.Context(), websocket.MessageText, response) != nil {
+				return
+			}
+		}
+	})
+
+	fake.server = httptest.NewServer(mux)
+	t.Cleanup(fake.server.Close)
+	for _, url := range urls {
+		fake.add(url)
+	}
+
+	previous := devToolsBaseURL
+	devToolsBaseURL = fake.server.URL
+	t.Cleanup(func() { devToolsBaseURL = previous })
+	return fake
+}
+
+func (f *fakeDevTools) add(url string) debugTarget {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id := strconv.Itoa(len(f.targets) + 1)
+	target := debugTarget{
+		ID:           id,
+		Type:         "page",
+		URL:          url,
+		WebSocketURL: "ws" + strings.TrimPrefix(f.server.URL, "http") + "/devtools/page/" + id,
+	}
+	f.targets = append(f.targets, target)
+	return target
+}
+
+func (f *fakeDevTools) sent() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.methods...)
+}
+
+func (f *fakeDevTools) openedURLs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.opened...)
+}
+
+func TestFindVisibleTargetReportsAnEmptyBrowser(t *testing.T) {
+	_, err := findVisibleTarget([]debugTarget{{Type: "page", URL: "about:blank"}})
+	if !errors.Is(err, ErrNoVisibleTarget) {
+		t.Fatalf("got error %v, want ErrNoVisibleTarget", err)
+	}
+}
+
+func TestSetPageLifecycleStateBringsTheStreamedPageToFront(t *testing.T) {
+	// Leaving the frozen state does not reliably repaint, which showed as a
+	// blank white frame until a tab was opened by hand.
+	fake := newFakeDevTools(t, "https://example.test")
+
+	if err := SetPageLifecycleState(context.Background(), "active", "https://fallback.test"); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"Page.setWebLifecycleState", "Page.bringToFront"}
+	if got := fake.sent(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("DevTools commands = %#v, want %#v", got, want)
+	}
+	if opened := fake.openedURLs(); len(opened) != 0 {
+		t.Fatalf("opened %#v, want no new page while one already exists", opened)
+	}
+}
+
+func TestSetPageLifecycleStateOpensAPageWhenEveryTabIsClosed(t *testing.T) {
+	fake := newFakeDevTools(t)
+
+	if err := SetPageLifecycleState(context.Background(), "active", "https://fallback.test"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := fake.openedURLs(); !reflect.DeepEqual(got, []string{"https://fallback.test"}) {
+		t.Fatalf("opened %#v, want the configured browser URL", got)
+	}
+	if got := fake.sent(); len(got) == 0 || got[0] != "Page.setWebLifecycleState" {
+		t.Fatalf("DevTools commands = %#v, want the replacement page activated", got)
+	}
+}
+
+func TestSetPageLifecycleStateDoesNotOpenAPageJustToFreezeIt(t *testing.T) {
+	fake := newFakeDevTools(t)
+
+	if err := SetPageLifecycleState(context.Background(), "frozen", "https://fallback.test"); err != nil {
+		t.Fatalf("freezing an empty browser should be a no-op, got %v", err)
+	}
+
+	if opened := fake.openedURLs(); len(opened) != 0 {
+		t.Fatalf("opened %#v, want nothing", opened)
+	}
+}
+
+func TestNavigateOpensAPageWhenEveryTabIsClosed(t *testing.T) {
+	fake := newFakeDevTools(t)
+
+	location, err := Navigate(context.Background(), "https://example.test/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location != "https://example.test/page" {
+		t.Fatalf("location = %q, want the requested URL", location)
+	}
+	if got := fake.openedURLs(); !reflect.DeepEqual(got, []string{"https://example.test/page"}) {
+		t.Fatalf("opened %#v, want the requested URL", got)
+	}
+}
+
+func TestNavigateReusesAnExistingPage(t *testing.T) {
+	fake := newFakeDevTools(t, "https://example.test")
+
+	if _, err := Navigate(context.Background(), "https://example.test/next"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := fake.sent(); !reflect.DeepEqual(got, []string{"Page.navigate"}) {
+		t.Fatalf("DevTools commands = %#v, want a single navigate", got)
+	}
+	if opened := fake.openedURLs(); len(opened) != 0 {
+		t.Fatalf("opened %#v, want the existing page reused", opened)
 	}
 }
 
