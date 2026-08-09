@@ -41,7 +41,9 @@ export function createInputClient({
   function sendNow(input) {
     if (!ready()) return false;
     sequence += 1;
-    socket.send(JSON.stringify({ v: 1, seq: sequence, ...input }));
+    input.v = 1;
+    input.seq = sequence;
+    socket.send(JSON.stringify(input));
     return true;
   }
 

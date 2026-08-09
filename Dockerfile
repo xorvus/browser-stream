@@ -1,4 +1,4 @@
-FROM golang:1.26-bookworm AS build
+FROM golang:1.26.5-bookworm AS build
 
 WORKDIR /src
 
@@ -9,7 +9,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 
-RUN CGO_ENABLED=0 go build -o /out/browser-stream ./cmd/server
+RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /out/browser-stream ./cmd/server
 
 FROM debian:trixie-slim
 
@@ -18,7 +18,7 @@ ENV DISPLAY=:99
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     && curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg \
@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y \
     && curl -fsSLo /etc/apt/sources.list.d/brave-browser-release.sources \
       https://brave-browser-apt-release.s3.brave.com/brave-browser.sources \
     && apt-get update \
-    && apt-get install -y \
+    && apt-get install -y --no-install-recommends \
     brave-browser \
     ffmpeg \
     xvfb \

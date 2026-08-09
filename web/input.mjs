@@ -1,8 +1,27 @@
+const INPUT_TAGS = new Set(["input", "textarea", "select", "button"]);
+
 export function shouldForwardKeyboard(target) {
   if (!target) return true;
   const tagName = String(target.tagName || "").toLowerCase();
-  if (["input", "textarea", "select", "button"].includes(tagName)) return false;
+  if (INPUT_TAGS.has(tagName)) return false;
   return !target.isContentEditable;
+}
+
+export function createInputControl({ send, release }) {
+  let enabled = true;
+  return {
+    get enabled() {
+      return enabled;
+    },
+    setEnabled(value) {
+      const next = Boolean(value);
+      if (enabled && !next) release();
+      enabled = next;
+    },
+    send(input) {
+      return enabled ? send(input) : false;
+    },
+  };
 }
 
 const TOUCH_TAP_DISTANCE = 8;

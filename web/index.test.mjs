@@ -29,9 +29,38 @@ test("uses capture dimensions reported by runtime stats", () => {
 });
 
 test("requires one explicit start action and requests sound from that action", () => {
-  assert.match(html, /<button id="start" type="button">Start stream<\/button>/);
+  assert.match(html, /<button id="start"[^>]*type="button"[^>]*>Start stream<\/button>/);
   assert.match(source, /createPlaybackStarter/);
   assert.doesNotMatch(html, /<video id="video"[^>]*\bmuted\b/);
+});
+
+test("renders Start stream over the video instead of in the toolbar", () => {
+  const stageStart = html.indexOf('<div class="video-stage">');
+  const videoStart = html.indexOf('<video id="video"', stageStart);
+  const startButton = html.indexOf('<button id="start"', videoStart);
+  const stageEnd = html.indexOf("</div>", startButton);
+  const toolbarStart = html.indexOf('<div class="player-toolbar"', stageEnd);
+
+  assert.ok(stageStart >= 0, "video stage must exist");
+  assert.ok(videoStart > stageStart, "video must be inside the stage");
+  assert.ok(startButton > videoStart, "start button must follow the video inside the stage");
+  assert.ok(stageEnd > startButton, "video stage must close after the start button");
+  assert.ok(toolbarStart > stageEnd, "toolbar must follow the video stage");
+});
+
+test("renders a per-viewer control toggle in the toolbar", () => {
+  const toolbarStart = html.indexOf('<div class="player-toolbar"');
+  const toolbarEnd = html.indexOf("</div>", toolbarStart);
+  const toolbar = html.slice(toolbarStart, toolbarEnd);
+
+  assert.match(toolbar, /<button id="control"[^>]*aria-pressed="true"[^>]*>Control: On<\/button>/);
+});
+
+test("shows the Keyboard button only for touch input", () => {
+  assert.match(html, /#keyboard\s*\{\s*display:\s*none/);
+  const coarseStart = html.indexOf("@media (pointer: coarse)");
+  const coarseEnd = html.indexOf("}", html.indexOf("}", coarseStart) + 1);
+  assert.match(html.slice(coarseStart, coarseEnd + 1), /#keyboard\s*\{\s*display:\s*block/);
 });
 
 test("provides touch-friendly clipboard and keyboard controls", () => {
@@ -55,7 +84,7 @@ test("renders every viewer control in a toolbar below the video", () => {
   assert.ok(toolbarEnd > toolbarStart, "viewer toolbar must be closed");
 
   const toolbar = html.slice(toolbarStart, toolbarEnd);
-  for (const id of ["quality", "start", "sound", "copy", "paste", "keyboard", "fullscreen"]) {
+  for (const id of ["quality", "control", "sound", "copy", "paste", "keyboard", "fullscreen"]) {
     assert.match(toolbar, new RegExp(`id=["']${id}["']`));
   }
 });

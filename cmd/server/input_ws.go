@@ -58,7 +58,7 @@ func newInputWebSocketHandler(width, height int, dispatch inputDispatch) http.Ha
 			keys:     make(map[string]browser.Input),
 		}
 		defer session.releaseAll()
-		ctx := context.Background()
+		ctx := r.Context()
 		for {
 			var message inputWireMessage
 			if err := wsjson.Read(ctx, connection, &message); err != nil {

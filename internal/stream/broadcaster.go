@@ -18,9 +18,10 @@ type Broadcaster struct {
 	cfg     config.Config
 	mu      sync.Mutex
 	tracks  map[*webrtc.TrackLocalStaticSample]struct{}
+	cached  atomic.Value
 	running bool
 	cancel  context.CancelFunc
-	retries int
+	retries atomic.Int32
 
 	samples         atomic.Uint64
 	writeFailures   atomic.Uint64
@@ -44,6 +45,7 @@ func NewBroadcaster(cfg config.Config) *Broadcaster {
 func (b *Broadcaster) Subscribe(track *webrtc.TrackLocalStaticSample) func() {
 	b.mu.Lock()
 	b.tracks[track] = struct{}{}
+	b.updateCachedLocked()
 	if !b.running {
 		b.startLocked(0)
 	}
@@ -54,6 +56,7 @@ func (b *Broadcaster) Subscribe(track *webrtc.TrackLocalStaticSample) func() {
 		once.Do(func() {
 			b.mu.Lock()
 			delete(b.tracks, track)
+			b.updateCachedLocked()
 			if len(b.tracks) == 0 && b.cancel != nil {
 				b.cancel()
 			}
@@ -100,9 +103,7 @@ func (b *Broadcaster) run(ctx context.Context) {
 			return
 		}
 		b.samples.Add(1)
-		b.mu.Lock()
-		b.retries = 0
-		b.mu.Unlock()
+		b.retries.Store(0)
 		for _, track := range b.snapshot() {
 			if err := track.WriteSample(media.Sample{Data: frame, Duration: frameDuration}); err != nil {
 				b.writeFailures.Add(1)
@@ -112,19 +113,25 @@ func (b *Broadcaster) run(ctx context.Context) {
 	}
 }
 
-func (b *Broadcaster) snapshot() []*webrtc.TrackLocalStaticSample {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *Broadcaster) updateCachedLocked() {
 	tracks := make([]*webrtc.TrackLocalStaticSample, 0, len(b.tracks))
 	for track := range b.tracks {
 		tracks = append(tracks, track)
 	}
-	return tracks
+	b.cached.Store(tracks)
+}
+
+func (b *Broadcaster) snapshot() []*webrtc.TrackLocalStaticSample {
+	if v := b.cached.Load(); v != nil {
+		return v.([]*webrtc.TrackLocalStaticSample)
+	}
+	return nil
 }
 
 func (b *Broadcaster) remove(track *webrtc.TrackLocalStaticSample) {
 	b.mu.Lock()
 	delete(b.tracks, track)
+	b.updateCachedLocked()
 	if len(b.tracks) == 0 && b.cancel != nil {
 		b.cancel()
 	}
@@ -134,11 +141,12 @@ func (b *Broadcaster) remove(track *webrtc.TrackLocalStaticSample) {
 func (b *Broadcaster) finish(failed bool) {
 	b.mu.Lock()
 	b.running, b.cancel = false, nil
+	b.updateCachedLocked()
 	if len(b.tracks) > 0 {
 		delay := time.Duration(0)
 		if failed {
-			delay = retryDelay(b.retries)
-			b.retries++
+			delay = retryDelay(int(b.retries.Load()))
+			b.retries.Add(1)
 		}
 		b.startLocked(delay)
 	}

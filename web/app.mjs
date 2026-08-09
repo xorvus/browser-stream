@@ -1,6 +1,6 @@
 import { deriveVideoFPS } from "./stats.mjs";
 import { createInputClient, inputWebSocketURL } from "./input-client.mjs";
-import { clipboardShortcut, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
+import { clipboardShortcut, createInputControl, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
 import { createPlaybackStarter } from "./playback.mjs";
 
 const status = document.getElementById("status");
@@ -11,6 +11,7 @@ const browserURL = document.getElementById("browser-url");
 const openButton = form.querySelector("button");
 const fullscreen = document.getElementById("fullscreen");
 const startButton = document.getElementById("start");
+const control = document.getElementById("control");
 const sound = document.getElementById("sound");
 const copy = document.getElementById("copy");
 const paste = document.getElementById("paste");
@@ -20,6 +21,9 @@ const quality = document.getElementById("quality");
 const mediaStream = new MediaStream();
 const inputState = createInputState();
 const captureSize = { width: 1920, height: 1080 };
+let cachedRect = video.getBoundingClientRect();
+new ResizeObserver(() => { cachedRect = video.getBoundingClientRect(); }).observe(video);
+window.addEventListener("scroll", () => { cachedRect = video.getBoundingClientRect(); }, { passive: true });
 let touchStart = null;
 let previousVideoStats = null;
 
@@ -39,11 +43,24 @@ const inputClient = createInputClient({
 });
 
 function pointer(event) {
-  return pointerCoordinates(event, video.getBoundingClientRect(), captureSize);
+  return pointerCoordinates(event, cachedRect, captureSize);
 }
 
 function releaseRemoteInput() {
   for (const input of inputState.releaseAll()) inputClient.send(input);
+}
+
+const inputControl = createInputControl({
+  send: (input) => inputClient.send(input),
+  release: releaseRemoteInput,
+});
+
+function renderControlState() {
+  const enabled = inputControl.enabled;
+  control.textContent = `Control: ${enabled ? "On" : "Off"}`;
+  control.setAttribute("aria-pressed", String(enabled));
+  for (const button of [copy, paste, keyboard]) button.disabled = !enabled;
+  if (!enabled) mobileKeyboard.blur();
 }
 
 function clipboardAPI() {
@@ -55,16 +72,18 @@ function clipboardAPI() {
 }
 
 async function pasteClipboard() {
+  if (!inputControl.enabled) return;
   try {
     const text = await clipboardAPI().readText();
     const input = keyboardInput(text);
-    if (input) inputClient.send(input);
+    if (input) inputControl.send(input);
   } catch (error) {
     setStatus(`Paste failed: ${error.message}`, true);
   }
 }
 
 async function copyClipboard() {
+  if (!inputControl.enabled) return;
   try {
     const response = await fetch("/clipboard");
     if (!response.ok) throw new Error(await response.text());
@@ -78,12 +97,18 @@ async function copyClipboard() {
 
 async function waitForIceGathering() {
   if (peer.iceGatheringState === "complete") return;
-  await new Promise((resolve) => {
-    peer.addEventListener("icegatheringstatechange", function complete() {
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      peer.removeEventListener("icegatheringstatechange", complete);
+      reject(new Error("ICE gathering timed out"));
+    }, 10000);
+    function complete() {
       if (peer.iceGatheringState !== "complete") return;
+      clearTimeout(timeout);
       peer.removeEventListener("icegatheringstatechange", complete);
       resolve();
-    });
+    }
+    peer.addEventListener("icegatheringstatechange", complete);
   });
 }
 
@@ -123,11 +148,13 @@ async function syncRuntimeProfile() {
 }
 
 video.addEventListener("pointermove", (event) => {
+  if (!inputControl.enabled) return;
   if (event.pointerType === "touch" && !touchStart) return;
-  inputClient.send({ type: "move", ...pointer(event) });
+  inputControl.send({ type: "move", ...pointer(event) });
 });
 
 video.addEventListener("pointerdown", (event) => {
+  if (!inputControl.enabled) return;
   if (event.pointerType !== "touch" && event.button !== 0) return;
   event.preventDefault();
   video.focus({ preventScroll: true });
@@ -137,10 +164,15 @@ video.addEventListener("pointerdown", (event) => {
     return;
   }
   const input = { type: "down", ...pointer(event) };
-  if (inputState.accept(input)) inputClient.send(input);
+  if (inputState.accept(input)) inputControl.send(input);
 });
 
 video.addEventListener("pointerup", (event) => {
+  if (!inputControl.enabled) {
+    touchStart = null;
+    if (video.hasPointerCapture?.(event.pointerId)) video.releasePointerCapture(event.pointerId);
+    return;
+  }
   if (event.pointerType !== "touch" && event.button !== 0) return;
   event.preventDefault();
   if (event.pointerType === "touch") {
@@ -148,15 +180,15 @@ video.addEventListener("pointerup", (event) => {
     touchStart = null;
     if (start && start.pointerId === event.pointerId && touchGesture({ dx: event.clientX - start.clientX, dy: event.clientY - start.clientY }) === "tap") {
       const coordinates = pointer(event);
-      inputClient.send({ type: "move", ...coordinates });
-      inputClient.send({ type: "down", ...coordinates });
-      inputClient.send({ type: "up", ...coordinates });
+      inputControl.send({ type: "move", ...coordinates });
+      inputControl.send({ type: "down", ...coordinates });
+      inputControl.send({ type: "up", ...coordinates });
     }
     if (video.hasPointerCapture?.(event.pointerId)) video.releasePointerCapture(event.pointerId);
     return;
   }
   const input = { type: "up", ...pointer(event) };
-  if (inputState.accept(input)) inputClient.send(input);
+  if (inputState.accept(input)) inputControl.send(input);
   if (video.hasPointerCapture?.(event.pointerId)) video.releasePointerCapture(event.pointerId);
 });
 
@@ -170,6 +202,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (!inputControl.enabled) return;
   if (!shouldForwardKeyboard(event.target)) return;
   const shortcut = clipboardShortcut(event);
   if (shortcut) {
@@ -180,29 +213,32 @@ window.addEventListener("keydown", (event) => {
   }
   event.preventDefault();
   const input = { type: "keydown", ...normalizeRemoteKey(event) };
-  if (inputState.accept(input)) inputClient.send(input);
+  if (inputState.accept(input)) inputControl.send(input);
 });
 
 window.addEventListener("keyup", (event) => {
+  if (!inputControl.enabled) return;
   const input = { type: "keyup", ...normalizeRemoteKey(event) };
   if (!inputState.accept(input)) return;
   event.preventDefault();
-  inputClient.send(input);
+  inputControl.send(input);
 });
 
 mobileKeyboard.addEventListener("input", () => {
+  if (!inputControl.enabled) return;
   const input = keyboardInput(mobileKeyboard.value);
   mobileKeyboard.value = "";
-  if (input) inputClient.send(input);
+  if (input) inputControl.send(input);
 });
 
 mobileKeyboard.addEventListener("keydown", (event) => {
+  if (!inputControl.enabled) return;
   if (event.code !== "Backspace") return;
   event.preventDefault();
   const input = { type: "keydown", key: event.key, code: event.code };
-  if (inputState.accept(input)) inputClient.send(input);
+  if (inputState.accept(input)) inputControl.send(input);
   const release = { type: "keyup", key: event.key, code: event.code };
-  if (inputState.accept(release)) inputClient.send(release);
+  if (inputState.accept(release)) inputControl.send(release);
 });
 
 peer.addTransceiver("video", { direction: "recvonly" });
@@ -237,6 +273,11 @@ sound.addEventListener("click", async () => {
 paste.addEventListener("click", pasteClipboard);
 copy.addEventListener("click", copyClipboard);
 keyboard.addEventListener("click", () => mobileKeyboard.focus({ preventScroll: true }));
+control.addEventListener("click", () => {
+  inputControl.setEnabled(!inputControl.enabled);
+  renderControlState();
+});
+renderControlState();
 
 quality.addEventListener("change", async () => {
   quality.disabled = true;
@@ -271,9 +312,12 @@ startButton.addEventListener("click", () => {
   startButton.textContent = "Starting…";
   setStatus("Connecting…");
   playbackStarter.start().then(() => {
-    startButton.textContent = "Streaming";
+    startButton.hidden = true;
     sound.disabled = false;
-  }).catch(() => {});
+  }).catch(() => {
+    startButton.disabled = false;
+    startButton.textContent = "Start stream";
+  });
 });
 
 form.addEventListener("submit", async (event) => {
@@ -307,5 +351,16 @@ fullscreen.addEventListener("click", async () => {
 
 inputClient.connect();
 syncRuntimeProfile().catch(() => {});
-setInterval(() => updateStats().catch(() => {}), 1000);
-setInterval(() => syncRuntimeProfile().catch(() => {}), 5000);
+let statsTimer = setInterval(() => updateStats().catch(() => {}), 1000);
+let profileTimer = setInterval(() => syncRuntimeProfile().catch(() => {}), 5000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    clearInterval(statsTimer);
+    clearInterval(profileTimer);
+    statsTimer = null;
+    profileTimer = null;
+  } else {
+    if (!statsTimer) statsTimer = setInterval(() => updateStats().catch(() => {}), 1000);
+    if (!profileTimer) profileTimer = setInterval(() => syncRuntimeProfile().catch(() => {}), 5000);
+  }
+});

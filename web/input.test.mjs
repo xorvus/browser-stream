@@ -1,7 +1,44 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { clipboardShortcut, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
+import { clipboardShortcut, createInputControl, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
+
+test("stops sending input while per-viewer control is disabled", () => {
+  const sent = [];
+  const control = createInputControl({
+    send(input) {
+      sent.push(input);
+      return true;
+    },
+    release() {},
+  });
+
+  assert.equal(control.send({ type: "move", x: 1, y: 2 }), true);
+  control.setEnabled(false);
+  assert.equal(control.send({ type: "keydown", key: "a", code: "KeyA" }), false);
+  control.setEnabled(true);
+  assert.equal(control.send({ type: "keyup", key: "a", code: "KeyA" }), true);
+  assert.deepEqual(sent, [
+    { type: "move", x: 1, y: 2 },
+    { type: "keyup", key: "a", code: "KeyA" },
+  ]);
+});
+
+test("releases held input once when per-viewer control is disabled", () => {
+  let releases = 0;
+  const control = createInputControl({
+    send() {},
+    release() {
+      releases += 1;
+    },
+  });
+
+  control.setEnabled(false);
+  control.setEnabled(false);
+
+  assert.equal(releases, 1);
+  assert.equal(control.enabled, false);
+});
 
 test("forwards keyboard input from the video or page", () => {
   assert.equal(shouldForwardKeyboard({ tagName: "VIDEO", isContentEditable: false }), true);

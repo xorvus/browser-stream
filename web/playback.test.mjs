@@ -48,3 +48,27 @@ test("reports a playback rejection from the shared start promise", async () => {
   await assert.rejects(starter.start(), failure);
   assert.equal(reported, failure);
 });
+
+test("retries playback without renegotiating an established connection", async () => {
+  let plays = 0;
+  let connects = 0;
+  const starter = createPlaybackStarter({
+    video: {
+      muted: true,
+      play() {
+        plays += 1;
+        return plays === 1 ? Promise.reject(new Error("blocked")) : Promise.resolve();
+      },
+    },
+    connect() {
+      connects += 1;
+      return Promise.resolve();
+    },
+  });
+
+  await assert.rejects(starter.start(), /blocked/);
+  await starter.start();
+
+  assert.equal(plays, 2);
+  assert.equal(connects, 1);
+});

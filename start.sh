@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 export DISPLAY=:99
 : "${BROWSER_URL:=https://google.com}"

@@ -14,6 +14,7 @@ type pointerMover func(context.Context, int, int) error
 
 type x11PointerMover struct {
 	once sync.Once
+	mu   sync.Mutex
 	conn *xgb.Conn
 	root xproto.Window
 	err  error
@@ -36,7 +37,9 @@ func (m *x11PointerMover) Move(ctx context.Context, x, y int) error {
 	if x < math.MinInt16 || x > math.MaxInt16 || y < math.MinInt16 || y > math.MaxInt16 {
 		return fmt.Errorf("pointer coordinate outside X11 range")
 	}
+	m.mu.Lock()
 	xproto.WarpPointer(m.conn, xproto.WindowNone, m.root, 0, 0, 0, 0, int16(x), int16(y))
+	m.mu.Unlock()
 	return nil
 }
 

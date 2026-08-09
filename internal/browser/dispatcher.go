@@ -22,7 +22,8 @@ type Dispatcher struct {
 	send     InputSender
 
 	mu        sync.Mutex
-	latest    *Input
+	latest    Input
+	hasLatest bool
 	closed    bool
 	sendGate  chan struct{}
 	moveReady chan struct{}
@@ -50,8 +51,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, input Input) error {
 		return ErrDispatcherClosed
 	}
 	if input.Type == "move" {
-		copy := input
-		d.latest = &copy
+		d.latest = input
+		d.hasLatest = true
 		d.mu.Unlock()
 		select {
 		case d.moveReady <- struct{}{}:
@@ -60,7 +61,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, input Input) error {
 		return nil
 	}
 	if input.Type == "down" || input.Type == "up" {
-		d.latest = nil
+		d.hasLatest = false
 	}
 	d.mu.Unlock()
 
@@ -71,7 +72,7 @@ func (d *Dispatcher) Close() {
 	d.closeMu.Do(func() {
 		d.mu.Lock()
 		d.closed = true
-		d.latest = nil
+		d.hasLatest = false
 		d.mu.Unlock()
 		close(d.done)
 	})
@@ -90,33 +91,33 @@ func (d *Dispatcher) run() {
 
 func (d *Dispatcher) flushMoves() {
 	lastMove := time.Time{}
+	timer := time.NewTimer(0)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
 	for {
 		if !lastMove.IsZero() {
 			wait := d.interval - time.Since(lastMove)
 			if wait > 0 {
-				timer := time.NewTimer(wait)
+				timer.Reset(wait)
 				select {
 				case <-timer.C:
 				case <-d.done:
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
 					return
 				}
 			}
 		}
 		d.mu.Lock()
+		hasInput := d.hasLatest
 		input := d.latest
-		d.latest = nil
+		d.hasLatest = false
 		d.mu.Unlock()
-		if input == nil {
+		if !hasInput {
 			return
 		}
 
-		if err := d.execute(context.Background(), *input, moveDeadline); err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		if err := d.execute(context.Background(), input, moveDeadline); err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			log.Printf("send coalesced pointer input: %v", err)
 		}
 		lastMove = time.Now()

@@ -39,8 +39,14 @@ func main() {
 	}
 
 	handler := newServer(cfg, stream.NewBroadcaster(cfg), http.FileServer(http.Dir("./web")))
+	srv := &http.Server{
+		Addr:              ":8080",
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	log.Printf("server listening on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", handler); err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -174,16 +180,20 @@ func (s *server) handleOffer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var cleanupOnce sync.Once
+	var unsubMu sync.Mutex
 	var unsubscribeVideo func()
 	var unsubscribeAudio func()
 	cleanup := func() {
 		cleanupOnce.Do(func() {
 			_ = peerConnection.Close()
-			if unsubscribeVideo != nil {
-				unsubscribeVideo()
+			unsubMu.Lock()
+			unsV, unsA := unsubscribeVideo, unsubscribeAudio
+			unsubMu.Unlock()
+			if unsV != nil {
+				unsV()
 			}
-			if unsubscribeAudio != nil {
-				unsubscribeAudio()
+			if unsA != nil {
+				unsA()
 			}
 		})
 	}
@@ -264,8 +274,10 @@ func (s *server) handleOffer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not gather WebRTC candidates", http.StatusGatewayTimeout)
 		return
 	}
+	unsubMu.Lock()
 	unsubscribeVideo = s.broadcaster.Subscribe(videoTrack)
 	unsubscribeAudio = s.audio.Subscribe(audioTrack)
+	unsubMu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(peerConnection.LocalDescription()); err != nil {

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Browser Stream</title>
+  <link rel="modulepreload" href="./app.mjs">
   <style>
     :root {
       color-scheme: dark;
@@ -185,6 +186,10 @@
       box-shadow: 0 24px 70px rgba(0, 0, 0, .34);
     }
 
+    .video-stage {
+      position: relative;
+    }
+
     video {
       display: block;
       width: 100%;
@@ -195,6 +200,26 @@
     }
 
     video:focus { outline-offset: -2px; }
+
+    .start-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      min-width: 150px;
+      transform: translate(-50%, -50%);
+      border-color: #4d83cf;
+      background: var(--accent-strong);
+      color: #fff;
+    }
+
+    .start-overlay:hover:not(:disabled) {
+      border-color: #76aaff;
+      background: #5298ff;
+    }
+
+    .start-overlay:active:not(:disabled) {
+      transform: translate(-50%, calc(-50% + 1px));
+    }
 
     .player-toolbar {
       display: flex;
@@ -220,6 +245,7 @@
     }
 
     #sound { margin-left: auto; }
+    #keyboard { display: none; }
 
     #mobile-keyboard {
       position: fixed;
@@ -265,6 +291,8 @@
     @media (pointer: coarse) {
       button,
       select { min-height: 44px; }
+
+      #keyboard { display: block; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -287,7 +315,10 @@
       <button type="submit">Open</button>
     </form>
     <section class="player-shell" aria-label="Remote browser viewer">
-      <video id="video" autoplay playsinline tabindex="0"></video>
+      <div class="video-stage">
+        <video id="video" autoplay playsinline tabindex="0"></video>
+        <button id="start" class="start-overlay" type="button">Start stream</button>
+      </div>
       <div class="player-toolbar" aria-label="Viewer controls">
         <label class="control" for="quality">Quality
           <select id="quality">
@@ -297,7 +328,7 @@
             <option value="720p30">720p · 30 FPS</option>
           </select>
         </label>
-        <button id="start" type="button">Start stream</button>
+        <button id="control" type="button" aria-pressed="true">Control: On</button>
         <button id="sound" type="button" disabled>Mute</button>
         <button id="copy" type="button">Copy</button>
         <button id="paste" type="button">Paste</button>
