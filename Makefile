@@ -16,7 +16,12 @@ widevine_bundle_dir = $(if $(and $(WIDEVINE_PLATFORM),$(wildcard $(1)/manifest.j
 AUTO_WIDEVINE_DIR := $(firstword $(foreach directory,$(WIDEVINE_SEARCH_DIRS),$(call widevine_bundle_dir,$(directory))))
 WIDEVINE_DIR ?= $(AUTO_WIDEVINE_DIR)
 TAILSCALE_IP := $(shell tailscale ip -4 2>/dev/null | head -n 1)
-WEBRTC_ICE_HOST ?= $(if $(TAILSCALE_IP),$(TAILSCALE_IP),127.0.0.1)
+LAN_IP := $(shell (ipconfig getifaddr en0 || ipconfig getifaddr en1 || hostname -I | awk '{print $$1}') 2>/dev/null | head -n 1)
+WEBRTC_ICE_HOST ?= $(shell \
+	if test -n "$(LAN_IP)" && test -n "$(TAILSCALE_IP)"; then printf '%s,%s' "$(LAN_IP)" "$(TAILSCALE_IP)"; \
+	elif test -n "$(LAN_IP)"; then printf '%s' "$(LAN_IP)"; \
+	elif test -n "$(TAILSCALE_IP)"; then printf '%s' "$(TAILSCALE_IP)"; \
+	else printf '%s' '127.0.0.1'; fi)
 WEBRTC_UDP_PORT_MIN ?= 50000
 WEBRTC_UDP_PORT_MAX ?= 50010
 

@@ -298,3 +298,33 @@ func TestPeerConnectionAdvertisesConfiguredDockerICEAddressAndPortRange(t *testi
 		t.Fatalf("got candidate port %d outside 60000-60100", port)
 	}
 }
+
+func TestPeerConnectionAdvertisesAllConfiguredICEAddresses(t *testing.T) {
+	pc, err := newPeerConnection(config.Config{
+		ICEHost: "127.0.0.1,192.0.2.20", UDPPortMin: 60100, UDPPortMax: 60200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo); err != nil {
+		t.Fatal(err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gathered := webrtc.GatheringCompletePromise(pc)
+	if err := pc.SetLocalDescription(offer); err != nil {
+		t.Fatal(err)
+	}
+	<-gathered
+
+	sdp := pc.LocalDescription().SDP
+	for _, host := range []string{"127\\.0\\.0\\.1", "192\\.0\\.2\\.20"} {
+		if !regexp.MustCompile(`candidate:[^ ]+ 1 udp [0-9]+ ` + host + ` ([0-9]+)`).MatchString(sdp) {
+			t.Fatalf("expected an ICE candidate for %s, got %q", host, sdp)
+		}
+	}
+}

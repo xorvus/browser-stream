@@ -436,8 +436,12 @@ func newPeerConnection(cfg config.Config) (*webrtc.PeerConnection, error) {
 	if err := settingEngine.SetEphemeralUDPPortRange(uint16(cfg.UDPPortMin), uint16(cfg.UDPPortMax)); err != nil {
 		return nil, err
 	}
+	iceAddresses, err := cfg.ICEAddresses()
+	if err != nil {
+		return nil, err
+	}
 	if err := settingEngine.SetICEAddressRewriteRules(webrtc.ICEAddressRewriteRule{
-		External:        []string{cfg.ICEHost},
+		External:        iceAddresses,
 		AsCandidateType: webrtc.ICECandidateTypeHost,
 		Mode:            webrtc.ICEAddressRewriteReplace,
 	}); err != nil {

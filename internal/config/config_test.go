@@ -87,6 +87,49 @@ func TestFromEnvReadsConfiguredValues(t *testing.T) {
 	}
 }
 
+func TestFromEnvReadsMultipleICEHosts(t *testing.T) {
+	env := map[string]string{"WEBRTC_ICE_HOST": "192.168.18.34,100.124.160.53"}
+	got, err := FromEnv(func(key string) string { return env[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.ICEHost != env["WEBRTC_ICE_HOST"] {
+		t.Fatalf("ICEHost = %q, want %q", got.ICEHost, env["WEBRTC_ICE_HOST"])
+	}
+	addresses, err := got.ICEAddresses()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"192.168.18.34", "100.124.160.53"}; !equalStrings(addresses, want) {
+		t.Fatalf("ICE addresses = %#v, want %#v", addresses, want)
+	}
+}
+
+func TestFromEnvRejectsInvalidICEHostList(t *testing.T) {
+	_, err := FromEnv(func(key string) string {
+		if key == "WEBRTC_ICE_HOST" {
+			return "192.168.18.34,not-an-ip"
+		}
+		return ""
+	})
+	if err == nil {
+		t.Fatal("expected invalid ICE host list to be rejected")
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range got {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestParseVideoProfileSupportsSharedQualityProfiles(t *testing.T) {
 	tests := map[string]VideoProfile{
 		"1080p60": VideoProfile1080p60,

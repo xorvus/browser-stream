@@ -99,8 +99,8 @@ func FromEnv(lookup func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	iceHost := valueOrDefault(lookup("WEBRTC_ICE_HOST"), defaultICEHost)
-	if net.ParseIP(iceHost) == nil {
-		return Config{}, fmt.Errorf("WEBRTC_ICE_HOST must be an IP address")
+	if _, err := parseICEHosts(iceHost); err != nil {
+		return Config{}, err
 	}
 	udpPortMin, err := udpPort("WEBRTC_UDP_PORT_MIN", valueOrDefault(lookup("WEBRTC_UDP_PORT_MIN"), strconv.Itoa(defaultUDPPortMin)))
 	if err != nil {
@@ -118,6 +118,10 @@ func FromEnv(lookup func(string) string) (Config, error) {
 		BrowserURL: browserURL, Width: width, Height: height, FPS: fps, Bitrate: bitrate, AudioBitrate: audioBitrate,
 		Profile: profile, ICEHost: iceHost, UDPPortMin: udpPortMin, UDPPortMax: udpPortMax,
 	}, nil
+}
+
+func (c Config) ICEAddresses() ([]string, error) {
+	return parseICEHosts(c.ICEHost)
 }
 
 func (c Config) VideoOutput() (width, height, fps int) {
@@ -158,4 +162,19 @@ func valueOrDefault(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func parseICEHosts(raw string) ([]string, error) {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("WEBRTC_ICE_HOST must contain at least one IP address")
+	}
+	for _, part := range parts {
+		if net.ParseIP(part) == nil {
+			return nil, fmt.Errorf("WEBRTC_ICE_HOST must contain only IP addresses")
+		}
+	}
+	return parts, nil
 }
