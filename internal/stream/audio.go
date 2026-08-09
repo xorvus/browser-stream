@@ -2,173 +2,123 @@ package stream
 
 import (
 	"context"
-	"log"
+	"io"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"browser-stream/internal/config"
 
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/oggreader"
 )
 
-const opusFrameDuration = 20 * time.Millisecond
-
+// AudioBroadcaster mirrors Broadcaster for audio: one Opus encoder per distinct
+// audio spec. Data-saver viewers get a 16 kbps mono encoder, which is roughly a
+// sixth of the default stereo stream and matters when the whole budget is
+// 100 kbps.
 type AudioBroadcaster struct {
-	cfg     config.Config
-	mu      sync.Mutex
-	tracks  map[*webrtc.TrackLocalStaticSample]struct{}
-	cached  atomic.Value
-	running bool
-	cancel  context.CancelFunc
-	retries atomic.Int32
+	mu        sync.Mutex
+	pipelines map[config.AudioSpec]*pipeline
 
-	samples         atomic.Uint64
-	writeFailures   atomic.Uint64
-	captureStarts   atomic.Uint64
-	captureFailures atomic.Uint64
+	// newSource is a seam for tests, matching Broadcaster.
+	newSource func(config.AudioSpec) source
+
+	stats struct {
+		samples         uint64
+		writeFailures   uint64
+		captureStarts   uint64
+		captureFailures uint64
+	}
 }
 
-func NewAudioBroadcaster(cfg config.Config) *AudioBroadcaster {
-	return &AudioBroadcaster{cfg: cfg, tracks: make(map[*webrtc.TrackLocalStaticSample]struct{})}
+func NewAudioBroadcaster() *AudioBroadcaster {
+	b := &AudioBroadcaster{pipelines: make(map[config.AudioSpec]*pipeline)}
+	b.newSource = audioSource
+	return b
 }
 
-func (b *AudioBroadcaster) Subscribe(track *webrtc.TrackLocalStaticSample) func() {
+func (b *AudioBroadcaster) Subscribe(track *webrtc.TrackLocalStaticSample, spec config.AudioSpec) func() {
 	b.mu.Lock()
-	b.tracks[track] = struct{}{}
-	b.updateCachedLocked()
-	if !b.running {
-		b.startLocked(0)
+	entry, ok := b.pipelines[spec]
+	if !ok {
+		entry = newPipeline(func() source { return b.newSource(spec) })
+		entry.onIdle = func() { b.release(spec) }
+		b.pipelines[spec] = entry
 	}
 	b.mu.Unlock()
+	return entry.subscribe(track)
+}
 
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			b.mu.Lock()
-			delete(b.tracks, track)
-			b.updateCachedLocked()
-			if len(b.tracks) == 0 && b.cancel != nil {
-				b.cancel()
-			}
-			b.mu.Unlock()
-		})
+func (b *AudioBroadcaster) release(spec config.AudioSpec) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	entry, ok := b.pipelines[spec]
+	if !ok {
+		return
+	}
+	if running, subscribers := entry.stats(); subscribers > 0 || running {
+		return
+	}
+	b.stats.samples += entry.samples.Load()
+	b.stats.writeFailures += entry.writeFailures.Load()
+	b.stats.captureStarts += entry.captureStarts.Load()
+	b.stats.captureFailures += entry.captureFailures.Load()
+	delete(b.pipelines, spec)
+}
+
+func audioSource(spec config.AudioSpec) source {
+	return source{
+		label: "browser audio",
+		start: func(ctx context.Context) (io.ReadCloser, func() error, error) {
+			return StartAudio(ctx, spec)
+		},
+		decode: audioDecoder(spec),
 	}
 }
 
-func (b *AudioBroadcaster) run(ctx context.Context) {
-	b.captureStarts.Add(1)
-	stdout, wait, err := StartAudio(ctx, b.cfg)
-	if err != nil {
-		log.Printf("start browser audio capture: %v", err)
-		b.captureFailures.Add(1)
-		b.finish(true)
-		return
-	}
-	defer func() {
-		_ = stdout.Close()
-		failed := ctx.Err() == nil
-		if err := wait(); err != nil && failed {
-			log.Printf("browser audio capture stopped: %v", err)
-		}
-		if failed {
-			b.captureFailures.Add(1)
-		}
-		b.finish(failed)
-	}()
-
-	reader, _, err := oggreader.NewWith(stdout)
-	if err != nil {
-		log.Printf("read Ogg/Opus header: %v", err)
-		return
-	}
-	log.Printf("browser audio capture: Opus 48000 Hz stereo")
-
-	for {
-		payload, pageHeader, err := reader.ParseNextPage()
+// audioDecoder reads one Opus packet per Ogg page. The sample duration must
+// match the encoder's frame size, not a hardcoded 20 ms: the saver profile uses
+// 60 ms frames, and mismatched durations would walk the RTP clock three times
+// too fast and break audio/video sync.
+func audioDecoder(spec config.AudioSpec) func(io.Reader) (sampleReader, error) {
+	frame := spec.FrameDuration()
+	return func(stdout io.Reader) (sampleReader, error) {
+		reader, _, err := oggreader.NewWith(stdout)
 		if err != nil {
-			return
+			return nil, err
 		}
-		if _, isHeader := pageHeader.HeaderType(payload); isHeader {
-			continue
-		}
-		b.samples.Add(1)
-		b.retries.Store(0)
-		for _, track := range b.snapshot() {
-			if err := track.WriteSample(media.Sample{Data: payload, Duration: opusFrameDuration}); err != nil {
-				b.writeFailures.Add(1)
-				b.remove(track)
+		return func() (sample, error) {
+			for {
+				payload, pageHeader, err := reader.ParseNextPage()
+				if err != nil {
+					return sample{}, err
+				}
+				if _, isHeader := pageHeader.HeaderType(payload); isHeader {
+					continue
+				}
+				return sample{Data: payload, Duration: frame, Keyframe: true}, nil
 			}
-		}
+		}, nil
 	}
-}
-
-func (b *AudioBroadcaster) updateCachedLocked() {
-	tracks := make([]*webrtc.TrackLocalStaticSample, 0, len(b.tracks))
-	for track := range b.tracks {
-		tracks = append(tracks, track)
-	}
-	b.cached.Store(tracks)
-}
-
-func (b *AudioBroadcaster) snapshot() []*webrtc.TrackLocalStaticSample {
-	if v := b.cached.Load(); v != nil {
-		return v.([]*webrtc.TrackLocalStaticSample)
-	}
-	return nil
-}
-
-func (b *AudioBroadcaster) remove(track *webrtc.TrackLocalStaticSample) {
-	b.mu.Lock()
-	delete(b.tracks, track)
-	b.updateCachedLocked()
-	if len(b.tracks) == 0 && b.cancel != nil {
-		b.cancel()
-	}
-	b.mu.Unlock()
-}
-
-func (b *AudioBroadcaster) finish(failed bool) {
-	b.mu.Lock()
-	b.running, b.cancel = false, nil
-	b.updateCachedLocked()
-	if len(b.tracks) > 0 {
-		delay := time.Duration(0)
-		if failed {
-			delay = retryDelay(int(b.retries.Load()))
-			b.retries.Add(1)
-		}
-		b.startLocked(delay)
-	}
-	b.mu.Unlock()
-}
-
-func (b *AudioBroadcaster) startLocked(delay time.Duration) {
-	ctx, cancel := context.WithCancel(context.Background())
-	b.running, b.cancel = true, cancel
-	go func() {
-		if delay > 0 {
-			timer := time.NewTimer(delay)
-			defer timer.Stop()
-			select {
-			case <-ctx.Done():
-				b.finish(false)
-				return
-			case <-timer.C:
-			}
-		}
-		b.run(ctx)
-	}()
 }
 
 func (b *AudioBroadcaster) Stats() BroadcasterStats {
 	b.mu.Lock()
-	running, subscribers := b.running, len(b.tracks)
-	b.mu.Unlock()
-	return BroadcasterStats{
-		Running: running, Subscribers: subscribers, Samples: b.samples.Load(), WriteFailures: b.writeFailures.Load(),
-		CaptureStarts: b.captureStarts.Load(), CaptureFailures: b.captureFailures.Load(),
+	defer b.mu.Unlock()
+
+	stats := BroadcasterStats{
+		Samples:         b.stats.samples,
+		WriteFailures:   b.stats.writeFailures,
+		CaptureStarts:   b.stats.captureStarts,
+		CaptureFailures: b.stats.captureFailures,
 	}
+	for _, entry := range b.pipelines {
+		running, subscribers := entry.stats()
+		stats.Running = stats.Running || running
+		stats.Subscribers += subscribers
+		stats.Samples += entry.samples.Load()
+		stats.WriteFailures += entry.writeFailures.Load()
+		stats.CaptureStarts += entry.captureStarts.Load()
+		stats.CaptureFailures += entry.captureFailures.Load()
+	}
+	return stats
 }

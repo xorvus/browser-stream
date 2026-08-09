@@ -35,7 +35,9 @@ func TestHealthzReportsServerReadiness(t *testing.T) {
 	}
 }
 
-func TestStaticAssetsDisableStaleBrowserCache(t *testing.T) {
+func TestStaticAssetsRevalidateInsteadOfRedownloading(t *testing.T) {
+	// no-cache still guarantees freshness, but unlike no-store it allows a 304
+	// instead of resending the whole page on every load.
 	handler := newServer(config.Config{}, stream.NewBroadcaster(config.Config{}), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -44,8 +46,8 @@ func TestStaticAssetsDisableStaleBrowserCache(t *testing.T) {
 
 	handler.ServeHTTP(recorder, request)
 
-	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
-		t.Fatalf("cache-control = %q, want no-store", got)
+	if got := recorder.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("cache-control = %q, want no-cache", got)
 	}
 }
 
@@ -262,6 +264,105 @@ func TestOfferAnswerIncludesOpusAudio(t *testing.T) {
 	if !strings.Contains(audioSection, "a=sendonly") {
 		t.Fatalf("expected server to send audio, got %q", audioSection)
 	}
+}
+
+func TestOfferRejectsUnknownStreamProfile(t *testing.T) {
+	cfg := config.Config{ICEHost: "127.0.0.1", UDPPortMin: 60000, UDPPortMax: 60100}
+	handler := newServer(cfg, stream.NewBroadcaster(cfg), http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodPost, "/offer?profile=potato", strings.NewReader(`{}`))
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("got status %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
+
+func TestOfferServesSaverViewerWithoutChangingTheSharedProfile(t *testing.T) {
+	cfg := config.Config{Width: 1280, Height: 720, FPS: 60, Profile: config.VideoProfile720p60, ICEHost: "127.0.0.1", UDPPortMin: 60200, UDPPortMax: 60300}
+	broadcaster := stream.NewBroadcaster(cfg)
+	handler := newServer(cfg, broadcaster, http.NotFoundHandler())
+
+	recorder := postOffer(t, handler, "/offer?profile=saver360")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("got status %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if got := broadcaster.Profile(); got != config.VideoProfile720p60 {
+		t.Fatalf("a saver viewer changed the shared capture profile to %q", got)
+	}
+
+	var answer webrtc.SessionDescription
+	if err := json.NewDecoder(recorder.Body).Decode(&answer); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(answer.SDP, "VP9/90000") {
+		t.Fatalf("expected the saver viewer to be answered with VP9, got %q", answer.SDP)
+	}
+}
+
+func TestOfferFallsBackToVP8WhenTheViewerHasNoVP9(t *testing.T) {
+	if offerSupportsVP9("a=rtpmap:96 VP8/90000\r\n") {
+		t.Fatal("a VP8-only offer must not be treated as VP9 capable")
+	}
+	if !offerSupportsVP9("a=rtpmap:98 VP9/90000\r\n") {
+		t.Fatal("a VP9 rtpmap must be detected")
+	}
+	if !offerSupportsVP9("a=rtpmap:100  vp9/90000\r\n") {
+		t.Fatal("payload matching must tolerate case and extra spacing")
+	}
+}
+
+func TestStatsAdvertisesTheCostOfEveryStreamProfile(t *testing.T) {
+	cfg := config.Config{Width: 1920, Height: 1080, FPS: 60, Profile: config.VideoProfile1080p60}
+	handler := newServer(cfg, stream.NewBroadcaster(cfg), http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodGet, "/stats", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	var got struct {
+		StreamProfiles []streamProfileInfo `json:"streamProfiles"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.StreamProfiles) != 3 {
+		t.Fatalf("stream profiles = %#v, want three entries", got.StreamProfiles)
+	}
+	saver := got.StreamProfiles[2]
+	if saver.Profile != "saver360" || saver.TotalKbps > 100 || saver.Codec != "vp9" {
+		t.Fatalf("saver360 advertised as %#v, want at most 100 kbps of VP9", saver)
+	}
+}
+
+func postOffer(t *testing.T, handler http.Handler, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	viewer, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { viewer.Close() })
+	for _, kind := range []webrtc.RTPCodecType{webrtc.RTPCodecTypeVideo, webrtc.RTPCodecTypeAudio} {
+		if _, err := viewer.AddTransceiverFromKind(kind, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	offer, err := viewer.CreateOffer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := viewer.SetLocalDescription(offer); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(offer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, target, bytes.NewReader(body))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	return recorder
 }
 
 func TestPeerConnectionAdvertisesConfiguredDockerICEAddressAndPortRange(t *testing.T) {

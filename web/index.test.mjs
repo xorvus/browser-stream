@@ -112,6 +112,32 @@ test("aligns quality and volume in the same settings row", () => {
   assert.match(mobileStyles, /\.video-settings\s*\{[^}]*display:\s*block/);
 });
 
+test("offers a per-viewer data saver that does not touch the shared profile", () => {
+  const settingsStart = html.indexOf('<div class="video-settings"');
+  const settings = html.slice(settingsStart, html.indexOf('<div class="player-toolbar"', settingsStart));
+
+  assert.match(settings, /for="saver"/);
+  assert.match(settings, /<select id="saver">/);
+  for (const value of ["full", "saver480", "saver360"]) {
+    assert.match(settings, new RegExp(`value="${value}"`));
+  }
+  assert.match(settings, /id="budget"/);
+  // The saver profile travels on the offer, so switching it renegotiates only
+  // this viewer instead of posting to the shared /quality endpoint.
+  assert.match(source, /session\.connect\(saver\.value\)/);
+  assert.doesNotMatch(source, /saver[\s\S]{0,200}fetch\("\/quality"/);
+});
+
+test("polls less often while the data saver is on", () => {
+  assert.match(source, /POLL_INTERVALS/);
+  assert.match(source, /pollInterval\("stats"\)/);
+  assert.match(source, /pollInterval\("profile"\)/);
+});
+
+test("starts in the saver profile when the device asks for reduced data", () => {
+  assert.match(source, /prefersDataSaver\(\)/);
+});
+
 test("provides touch-friendly clipboard and keyboard controls", () => {
   assert.match(html, /id="copy"/);
   assert.match(html, /id="paste"/);

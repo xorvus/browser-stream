@@ -209,6 +209,14 @@
       min-width: 0;
     }
 
+    .budget {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: .74rem;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
     .quality-control select {
       width: auto;
       flex: 1;
@@ -450,6 +458,19 @@
                 <path d="m4 6 4 4 4-4"></path>
               </svg>
             </span>
+          </label>
+          <label class="control quality-control" for="saver">Data saver
+            <span class="quality-select">
+              <select id="saver">
+                <option value="full">Off · full quality</option>
+                <option value="saver480">On · 480p 20 FPS</option>
+                <option value="saver360">Max · 360p 15 FPS</option>
+              </select>
+              <svg class="select-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="m4 6 4 4 4-4"></path>
+              </svg>
+            </span>
+            <span id="budget" class="budget"></span>
           </label>
           <aside class="sound-sidebar" aria-label="Volume controls">
             <button id="sound" type="button" disabled aria-label="Mute" aria-pressed="false" title="Mute">

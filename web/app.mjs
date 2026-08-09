@@ -2,10 +2,10 @@ import { deriveVideoFPS } from "./stats.mjs";
 import { createInputClient, inputWebSocketURL } from "./input-client.mjs";
 import { clipboardShortcut, createInputControl, createInputState, keyboardInput, normalizeRemoteKey, pointerCoordinates, pointerParkingCoordinates, shouldForwardKeyboard, touchGesture } from "./input.mjs";
 import { createPlaybackStarter } from "./playback.mjs";
+import { createStreamSession, prefersDataSaver } from "./session.mjs";
 
 const status = document.getElementById("status");
 const video = document.getElementById("video");
-const peer = new RTCPeerConnection();
 const form = document.getElementById("url-form");
 const browserURL = document.getElementById("browser-url");
 const openButton = form.querySelector("button");
@@ -19,7 +19,9 @@ const paste = document.getElementById("paste");
 const keyboard = document.getElementById("keyboard");
 const mobileKeyboard = document.getElementById("mobile-keyboard");
 const quality = document.getElementById("quality");
-const mediaStream = new MediaStream();
+const saver = document.getElementById("saver");
+const budget = document.getElementById("budget");
+let mediaStream = new MediaStream();
 const inputState = createInputState();
 const captureSize = { width: 1920, height: 1080 };
 let cachedRect = video.getBoundingClientRect();
@@ -27,8 +29,20 @@ new ResizeObserver(() => { cachedRect = video.getBoundingClientRect(); }).observ
 window.addEventListener("scroll", () => { cachedRect = video.getBoundingClientRect(); }, { passive: true });
 let touchStart = null;
 let previousVideoStats = null;
+let streamProfiles = [];
 
 video.srcObject = mediaStream;
+
+// Polling costs real bytes on a metered link, so the data-saver profiles poll
+// an order of magnitude less often than the full stream.
+const POLL_INTERVALS = {
+  full: { stats: 1000, profile: 5000 },
+  saver: { stats: 5000, profile: 30000 },
+};
+
+function pollInterval(name) {
+  return POLL_INTERVALS[saver.value === "full" ? "full" : "saver"][name];
+}
 
 function setStatus(message, isError = false) {
   status.textContent = message;
@@ -112,47 +126,49 @@ async function copyClipboard() {
   }
 }
 
-async function waitForIceGathering() {
-  if (peer.iceGatheringState === "complete") return;
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      peer.removeEventListener("icegatheringstatechange", complete);
-      reject(new Error("ICE gathering timed out"));
-    }, 10000);
-    function complete() {
-      if (peer.iceGatheringState !== "complete") return;
-      clearTimeout(timeout);
-      peer.removeEventListener("icegatheringstatechange", complete);
-      resolve();
+const session = createStreamSession({
+  onTrack: (event) => mediaStream.addTrack(event.track),
+  onState: (state) => {
+    switch (state) {
+      case "connected":
+        setStatus("Live");
+        break;
+      case "failed":
+      case "disconnected":
+      case "closed":
+        setStatus(`Connection ${state}`, true);
+        break;
+      default:
+        setStatus("Connecting…");
     }
-    peer.addEventListener("icegatheringstatechange", complete);
-  });
-}
+  },
+});
 
-async function connect() {
-  const offer = await peer.createOffer();
-  await peer.setLocalDescription(offer);
-  await waitForIceGathering();
-  const response = await fetch("/offer", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(peer.localDescription),
-  });
-  if (!response.ok) throw new Error(await response.text());
-  await peer.setRemoteDescription(await response.json());
+function connect() {
+  // Every reconnect starts a fresh MediaStream: tracks from the previous
+  // negotiation belong to a peer connection that no longer exists.
+  mediaStream = new MediaStream();
+  video.srcObject = mediaStream;
+  previousVideoStats = null;
+  return session.connect(saver.value);
 }
 
 async function updateStats() {
-  const reports = await peer.getStats();
+  const reports = await session.getStats();
   for (const report of reports.values()) {
     if (report.type !== "inbound-rtp" || report.kind !== "video") continue;
-    if (peer.connectionState !== "connected" || !report.frameWidth || !report.frameHeight) continue;
+    if (session.connectionState !== "connected" || !report.frameWidth || !report.frameHeight) continue;
     previousVideoStats = deriveVideoFPS(previousVideoStats, report);
     const fps = previousVideoStats.fps;
     setStatus(fps === null
       ? `${report.frameWidth}×${report.frameHeight} · Measuring FPS…`
       : `${report.frameWidth}×${report.frameHeight} · ${Math.round(fps)} FPS`);
   }
+}
+
+function renderBudget() {
+  const selected = streamProfiles.find((entry) => entry.profile === saver.value);
+  budget.textContent = selected ? `≈ ${selected.totalKbps} kbps` : "";
 }
 
 async function syncRuntimeProfile() {
@@ -162,6 +178,10 @@ async function syncRuntimeProfile() {
   if (runtime.profile) quality.value = runtime.profile;
   if (runtime.captureWidth > 0) captureSize.width = runtime.captureWidth;
   if (runtime.captureHeight > 0) captureSize.height = runtime.captureHeight;
+  if (Array.isArray(runtime.streamProfiles)) {
+    streamProfiles = runtime.streamProfiles;
+    renderBudget();
+  }
 }
 
 video.addEventListener("pointermove", (event) => {
@@ -258,25 +278,6 @@ mobileKeyboard.addEventListener("keydown", (event) => {
   if (inputState.accept(release)) inputControl.send(release);
 });
 
-peer.addTransceiver("video", { direction: "recvonly" });
-peer.addTransceiver("audio", { direction: "recvonly" });
-peer.ontrack = (event) => mediaStream.addTrack(event.track);
-
-peer.onconnectionstatechange = () => {
-  switch (peer.connectionState) {
-    case "connected":
-      setStatus("Live");
-      break;
-    case "failed":
-    case "disconnected":
-    case "closed":
-      setStatus(`Connection ${peer.connectionState}`, true);
-      break;
-    default:
-      setStatus("Connecting…");
-  }
-};
-
 sound.addEventListener("click", async () => {
   if (video.muted || video.volume === 0) {
     video.muted = false;
@@ -327,6 +328,25 @@ quality.addEventListener("change", async () => {
     setStatus(`Quality change failed: ${error.message}`, true);
   } finally {
     quality.disabled = false;
+  }
+});
+
+saver.addEventListener("change", async () => {
+  saver.disabled = true;
+  renderBudget();
+  const started = startButton.hidden;
+  setStatus(started ? `Switching this viewer to ${saver.value}…` : "Data saver updated");
+  try {
+    // Only an already-running stream has to renegotiate; before Start there is
+    // nothing to switch and the choice is simply used on first connect.
+    if (started) {
+      await connect();
+      restartPolling();
+    }
+  } catch (error) {
+    setStatus(`Data saver change failed: ${error.message}`, true);
+  } finally {
+    saver.disabled = false;
   }
 });
 
@@ -383,18 +403,35 @@ fullscreen.addEventListener("click", async () => {
   }
 });
 
+let statsTimer = null;
+let profileTimer = null;
+
+function stopPolling() {
+  clearInterval(statsTimer);
+  clearInterval(profileTimer);
+  statsTimer = null;
+  profileTimer = null;
+}
+
+function startPolling() {
+  if (!statsTimer) statsTimer = setInterval(() => updateStats().catch(() => {}), pollInterval("stats"));
+  if (!profileTimer) profileTimer = setInterval(() => syncRuntimeProfile().catch(() => {}), pollInterval("profile"));
+}
+
+function restartPolling() {
+  stopPolling();
+  startPolling();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") stopPolling();
+  else startPolling();
+});
+
+// Respect the device's own data-saver setting rather than pulling a full-rate
+// stream first and asking the person to notice and downgrade.
+if (prefersDataSaver()) saver.value = "saver360";
+
 inputClient.connect();
 syncRuntimeProfile().catch(() => {});
-let statsTimer = setInterval(() => updateStats().catch(() => {}), 1000);
-let profileTimer = setInterval(() => syncRuntimeProfile().catch(() => {}), 5000);
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") {
-    clearInterval(statsTimer);
-    clearInterval(profileTimer);
-    statsTimer = null;
-    profileTimer = null;
-  } else {
-    if (!statsTimer) statsTimer = setInterval(() => updateStats().catch(() => {}), 1000);
-    if (!profileTimer) profileTimer = setInterval(() => syncRuntimeProfile().catch(() => {}), 5000);
-  }
-});
+startPolling();
