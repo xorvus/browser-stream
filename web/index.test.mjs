@@ -53,7 +53,7 @@ test("renders a per-viewer control toggle in the toolbar", () => {
   const toolbarEnd = html.indexOf("</div>", toolbarStart);
   const toolbar = html.slice(toolbarStart, toolbarEnd);
 
-  assert.match(toolbar, /<button id="control"[^>]*aria-pressed="true"[^>]*>Control: On<\/button>/);
+  assert.match(toolbar, /<button id="control"[^>]*aria-pressed="false"[^>]*>Control: Off<\/button>/);
 });
 
 test("shows the Keyboard button only for touch input", () => {
@@ -61,6 +61,22 @@ test("shows the Keyboard button only for touch input", () => {
   const coarseStart = html.indexOf("@media (pointer: coarse)");
   const coarseEnd = html.indexOf("}", html.indexOf("}", coarseStart) + 1);
   assert.match(html.slice(coarseStart, coarseEnd + 1), /#keyboard\s*\{\s*display:\s*block/);
+});
+
+test("renders the volume control in a video sidebar", () => {
+  const layoutStart = html.indexOf('<div class="video-layout">');
+  const sidebarStart = html.indexOf('<aside class="sound-sidebar"', layoutStart);
+  const toolbarStart = html.indexOf('<div class="player-toolbar"', sidebarStart);
+  const sidebar = html.slice(sidebarStart, toolbarStart);
+
+  assert.ok(layoutStart >= 0, "video layout must exist");
+  assert.ok(sidebarStart > layoutStart, "sound sidebar must be inside the video layout");
+  assert.ok(toolbarStart > sidebarStart, "toolbar must follow the sound sidebar");
+  assert.match(sidebar, /<button id="sound"[^>]*aria-label="Mute"/);
+  assert.match(sidebar, /<svg class="sound-icon sound-icon-on"/);
+  assert.match(sidebar, /<svg class="sound-icon sound-icon-off"/);
+  assert.match(sidebar, /<input id="volume" type="range"[^>]*min="0"[^>]*max="1"/);
+  assert.match(source, /volume\.addEventListener\("input"/);
 });
 
 test("provides touch-friendly clipboard and keyboard controls", () => {
@@ -84,7 +100,7 @@ test("renders every viewer control in a toolbar below the video", () => {
   assert.ok(toolbarEnd > toolbarStart, "viewer toolbar must be closed");
 
   const toolbar = html.slice(toolbarStart, toolbarEnd);
-  for (const id of ["quality", "control", "sound", "copy", "paste", "keyboard", "fullscreen"]) {
+  for (const id of ["quality", "control", "copy", "paste", "keyboard", "fullscreen"]) {
     assert.match(toolbar, new RegExp(`id=["']${id}["']`));
   }
 });

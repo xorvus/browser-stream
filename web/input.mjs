@@ -7,8 +7,8 @@ export function shouldForwardKeyboard(target) {
   return !target.isContentEditable;
 }
 
-export function createInputControl({ send, release }) {
-  let enabled = true;
+export function createInputControl({ send, release, initialEnabled = true }) {
+  let enabled = Boolean(initialEnabled);
   return {
     get enabled() {
       return enabled;

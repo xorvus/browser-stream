@@ -40,6 +40,19 @@ test("releases held input once when per-viewer control is disabled", () => {
   assert.equal(control.enabled, false);
 });
 
+test("can start with per-viewer control disabled", () => {
+  const control = createInputControl({
+    initialEnabled: false,
+    send() {
+      throw new Error("disabled control sent input");
+    },
+    release() {},
+  });
+
+  assert.equal(control.enabled, false);
+  assert.equal(control.send({ type: "move", x: 1, y: 2 }), false);
+});
+
 test("forwards keyboard input from the video or page", () => {
   assert.equal(shouldForwardKeyboard({ tagName: "VIDEO", isContentEditable: false }), true);
   assert.equal(shouldForwardKeyboard({ tagName: "BODY", isContentEditable: false }), true);

@@ -32,7 +32,7 @@ type Dispatcher struct {
 }
 
 func NewInputDispatcher() *Dispatcher {
-	return NewDispatcher(time.Second/60, SendInput)
+	return NewDispatcher(time.Second/120, SendInput)
 }
 
 func NewDispatcher(interval time.Duration, send InputSender) *Dispatcher {

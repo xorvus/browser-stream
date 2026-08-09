@@ -92,7 +92,7 @@ test("coalesces pointer movement to the latest position", () => {
   client.send({ type: "move", x: 10, y: 20 });
   client.send({ type: "move", x: 30, y: 40 });
   assert.equal(socket.sent.length, 0);
-  assert.equal(Math.round(scheduler.runNext()), 17);
+  assert.equal(Math.round(scheduler.runNext()), 8);
   assert.deepEqual(socket.sent, [{ v: 1, seq: 1, type: "move", x: 30, y: 40 }]);
 });
 

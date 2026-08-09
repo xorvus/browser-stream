@@ -186,8 +186,60 @@
       box-shadow: 0 24px 70px rgba(0, 0, 0, .34);
     }
 
+    .video-layout {
+      display: flex;
+      align-items: stretch;
+    }
+
     .video-stage {
       position: relative;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .sound-sidebar {
+      display: flex;
+      width: 54px;
+      flex: 0 0 54px;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 10px 6px;
+      border-left: 1px solid var(--border);
+      background: linear-gradient(180deg, #151b26, #111620);
+    }
+
+    .sound-sidebar button {
+      min-width: 40px;
+      padding: 0;
+    }
+
+    .sound-icon {
+      display: block;
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+    }
+
+    .sound-icon-off { display: none; }
+
+    #sound[aria-pressed="true"] .sound-icon-on { display: none; }
+    #sound[aria-pressed="true"] .sound-icon-off { display: block; }
+
+    #sound:disabled {
+      cursor: wait;
+    }
+
+    #volume {
+      width: 24px;
+      height: min(30vh, 220px);
+      accent-color: var(--accent);
+      writing-mode: vertical-lr;
+      direction: rtl;
     }
 
     video {
@@ -244,7 +296,6 @@
       padding: 0 34px 0 10px;
     }
 
-    #sound { margin-left: auto; }
     #keyboard { display: none; }
 
     #mobile-keyboard {
@@ -258,6 +309,26 @@
     @media (max-width: 760px) {
       main { padding: 10px; }
       .app-header { margin: 4px 2px 12px; }
+
+      .video-layout { display: block; }
+
+      .sound-sidebar {
+        width: auto;
+        flex-direction: row;
+        justify-content: stretch;
+        padding: 8px 10px;
+        border-top: 1px solid var(--border);
+        border-left: 0;
+      }
+
+      .sound-sidebar button { flex: 0 0 44px; }
+      #volume {
+        width: auto;
+        height: 28px;
+        flex: 1;
+        writing-mode: horizontal-tb;
+        direction: ltr;
+      }
 
       #url-form {
         grid-template-columns: auto minmax(0, 1fr);
@@ -279,7 +350,6 @@
 
       .control select { flex: 1; min-width: 0; }
       .player-toolbar button { width: 100%; padding-inline: 8px; }
-      #sound { margin-left: 0; }
     }
 
     @media (max-width: 430px) {
@@ -315,9 +385,26 @@
       <button type="submit">Open</button>
     </form>
     <section class="player-shell" aria-label="Remote browser viewer">
-      <div class="video-stage">
-        <video id="video" autoplay playsinline tabindex="0"></video>
-        <button id="start" class="start-overlay" type="button">Start stream</button>
+      <div class="video-layout">
+        <div class="video-stage">
+          <video id="video" autoplay playsinline tabindex="0"></video>
+          <button id="start" class="start-overlay" type="button">Start stream</button>
+        </div>
+        <aside class="sound-sidebar" aria-label="Volume controls">
+          <button id="sound" type="button" disabled aria-label="Mute" aria-pressed="false" title="Mute">
+            <svg class="sound-icon sound-icon-on" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 10v4h3l4 3V7l-4 3H4Z"></path>
+              <path d="M15 9.5a4 4 0 0 1 0 5"></path>
+              <path d="M17.5 7a7 7 0 0 1 0 10"></path>
+            </svg>
+            <svg class="sound-icon sound-icon-off" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 10v4h3l4 3V7l-4 3H4Z"></path>
+              <path d="m16 9 5 6"></path>
+              <path d="m21 9-5 6"></path>
+            </svg>
+          </button>
+          <input id="volume" type="range" min="0" max="1" step="0.01" value="1" disabled aria-label="Volume">
+        </aside>
       </div>
       <div class="player-toolbar" aria-label="Viewer controls">
         <label class="control" for="quality">Quality
@@ -328,8 +415,7 @@
             <option value="720p30">720p · 30 FPS</option>
           </select>
         </label>
-        <button id="control" type="button" aria-pressed="true">Control: On</button>
-        <button id="sound" type="button" disabled>Mute</button>
+        <button id="control" type="button" aria-pressed="false">Control: Off</button>
         <button id="copy" type="button">Copy</button>
         <button id="paste" type="button">Paste</button>
         <button id="keyboard" type="button">Keyboard</button>

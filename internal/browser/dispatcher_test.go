@@ -36,6 +36,15 @@ func TestDispatcherCoalescesPointerMovesToLatestPosition(t *testing.T) {
 	}
 }
 
+func TestNewInputDispatcherUsesHighFrequencyMoveInterval(t *testing.T) {
+	dispatcher := NewInputDispatcher()
+	defer dispatcher.Close()
+
+	if dispatcher.interval != time.Second/120 {
+		t.Fatalf("move interval = %s, want %s", dispatcher.interval, time.Second/120)
+	}
+}
+
 func TestDispatcherPreservesUrgentInputOrder(t *testing.T) {
 	var mu sync.Mutex
 	var sent []Input

@@ -1,5 +1,5 @@
 const OPEN = 1;
-const DEFAULT_MOVE_INTERVAL = 1000 / 60;
+const DEFAULT_MOVE_INTERVAL = 1000 / 120;
 const MAX_RECONNECT_DELAY = 5000;
 
 export function inputWebSocketURL(locationObject = globalThis.location) {
@@ -27,12 +27,8 @@ export function createInputClient({
   let moveTimer = null;
   let pendingMove = null;
 
-  const schedulePointerMove = scheduleMove || (typeof globalThis.requestAnimationFrame === "function"
-    ? (callback) => globalThis.requestAnimationFrame(callback)
-    : (callback) => schedule(callback, moveInterval));
-  const cancelPointerMove = cancelMove || (typeof globalThis.cancelAnimationFrame === "function"
-    ? (frame) => globalThis.cancelAnimationFrame(frame)
-    : cancel);
+  const schedulePointerMove = scheduleMove || ((callback) => schedule(callback, moveInterval));
+  const cancelPointerMove = cancelMove || cancel;
 
   function ready() {
     return socket?.readyState === OPEN;

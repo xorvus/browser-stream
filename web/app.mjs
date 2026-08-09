@@ -13,6 +13,7 @@ const fullscreen = document.getElementById("fullscreen");
 const startButton = document.getElementById("start");
 const control = document.getElementById("control");
 const sound = document.getElementById("sound");
+const volume = document.getElementById("volume");
 const copy = document.getElementById("copy");
 const paste = document.getElementById("paste");
 const keyboard = document.getElementById("keyboard");
@@ -34,6 +35,16 @@ function setStatus(message, isError = false) {
   status.classList.toggle("error", isError);
 }
 
+function renderSoundState() {
+  const muted = video.muted || video.volume === 0;
+  sound.setAttribute("aria-label", muted ? "Enable sound" : "Mute");
+  sound.setAttribute("aria-pressed", String(muted));
+  sound.title = muted ? "Enable sound" : "Mute";
+}
+
+video.volume = Number(volume.value);
+renderSoundState();
+
 const inputClient = createInputClient({
   url: inputWebSocketURL(),
   onStatus: (state) => {
@@ -51,6 +62,7 @@ function releaseRemoteInput() {
 }
 
 const inputControl = createInputControl({
+  initialEnabled: false,
   send: (input) => inputClient.send(input),
   release: releaseRemoteInput,
 });
@@ -261,13 +273,27 @@ peer.onconnectionstatechange = () => {
 };
 
 sound.addEventListener("click", async () => {
-  video.muted = !video.muted;
-  sound.textContent = video.muted ? "Enable sound" : "Mute";
+  if (video.muted || video.volume === 0) {
+    video.muted = false;
+    if (video.volume === 0) {
+      video.volume = 1;
+      volume.value = "1";
+    }
+  } else {
+    video.muted = true;
+  }
+  renderSoundState();
   try {
     await video.play();
   } catch (error) {
     setStatus(`Audio playback failed: ${error.message}`, true);
   }
+});
+
+volume.addEventListener("input", () => {
+  video.volume = Number(volume.value);
+  video.muted = video.volume === 0;
+  renderSoundState();
 });
 
 paste.addEventListener("click", pasteClipboard);
@@ -302,7 +328,7 @@ const playbackStarter = createPlaybackStarter({
   connect,
   onError: (error) => {
     video.muted = true;
-    sound.textContent = "Enable sound";
+    renderSoundState();
     setStatus(`Unable to start stream: ${error.message}`, true);
   },
 });
@@ -314,6 +340,7 @@ startButton.addEventListener("click", () => {
   playbackStarter.start().then(() => {
     startButton.hidden = true;
     sound.disabled = false;
+    volume.disabled = false;
   }).catch(() => {
     startButton.disabled = false;
     startButton.textContent = "Start stream";
